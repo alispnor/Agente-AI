@@ -3,6 +3,12 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Orchestrator from "./orchestrator/orchestrator.js";
+import frontendAgent from "./agents/frontendAgent.js";
+import backendAgent from "./agents/backendAgent.js";
+import qaAgent from "./agents/qaAgent.js";
+import devopsAgent from "./agents/devopsAgent.js";
+import uxuiAgent from "./agents/uxuiAgent.js";
+import mobileAgent from "./agents/mobileAgent.js";
 import {
   listarProjetos,
   registrarProjeto,
@@ -19,6 +25,17 @@ import {
   salvarRelatorio,
 } from "./history/reportGenerator.js";
 import { taskUploadAvatar } from "./tasks/examples.js";
+import { gerarContextoProjeto } from "./project/projectReader.js";
+import type { AgentName } from "./types/index.js";
+
+const AGENTES: Record<AgentName, (tarefa: string, ctx?: string) => Promise<string>> = {
+  frontend: frontendAgent,
+  backend: backendAgent,
+  qa: qaAgent,
+  devops: devopsAgent,
+  uxui: uxuiAgent,
+  mobile: mobileAgent,
+};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -196,6 +213,56 @@ async function cmdReportAll(): Promise<void> {
   console.log(`\nRelatório guardado em: ${caminho}`);
 }
 
+function listarAgentes(): void {
+  console.log("\n🤖 Agentes disponíveis:\n");
+  console.log("  frontend  — Engenheiro Frontend Sênior (React, Angular, Vue)");
+  console.log("  backend   — Engenheiro Backend Sênior (Node, Laravel, Python, DBs)");
+  console.log("  qa        — Engenheiro QA Sênior (testes, E2E, cobertura)");
+  console.log("  devops    — Engenheiro DevOps/SRE (CI/CD, Docker, K8s, cloud)");
+  console.log("  uxui      — Designer UX/UI Sênior (design system, acessibilidade)");
+  console.log("  mobile    — Desenvolvedor Mobile Sênior (React Native, Flutter, iOS, Android)");
+  console.log('\nUso: npm run cli -- --agent <nome> "<tarefa>" [--path /caminho/do/projeto]');
+  console.log('Exemplo: npm run cli -- --agent backend "Criar API REST com JWT" --path /home/user/meu-projeto');
+}
+
+async function cmdAgent(nomeAgente: string, tarefa: string, caminhoProjeto?: string): Promise<void> {
+  const nome = nomeAgente.toLowerCase() as AgentName;
+  const fn = AGENTES[nome];
+  if (!fn) {
+    console.error(`❌ Agente "${nomeAgente}" não encontrado.`);
+    listarAgentes();
+    process.exit(1);
+  }
+
+  let contexto = "";
+  if (caminhoProjeto) {
+    const resolvedPath = path.resolve(caminhoProjeto);
+    console.log(`\n📂 Lendo projeto em: ${resolvedPath}`);
+    try {
+      const ctx = gerarContextoProjeto(resolvedPath, nome);
+      contexto =
+        `ESTRUTURA DO PROJETO:\n${ctx.estrutura}\n\n` +
+        `DEPENDÊNCIAS:\n${ctx.dependencias}\n\n` +
+        `ARQUIVOS RELEVANTES:\n${ctx.arquivosRelevantes}`;
+      console.log(`✅ Contexto carregado (estrutura + código do projeto)`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`⚠️ Erro ao ler projeto: ${msg}`);
+    }
+  }
+
+  console.log(`\n🤖 Chamando agente: ${nome}`);
+  console.log(`📋 Tarefa: ${tarefa}`);
+  if (caminhoProjeto) console.log(`📂 Projeto: ${path.resolve(caminhoProjeto)}`);
+  console.log("\n" + "=".repeat(72));
+  const t0 = Date.now();
+  const resposta = await fn(tarefa, contexto);
+  const duracao = Date.now() - t0;
+  console.log("=".repeat(72));
+  console.log(`\n--- RESPOSTA DO AGENTE [${nome}] (${(duracao / 1000).toFixed(1)}s) ---\n`);
+  console.log(resposta);
+}
+
 async function cmdRun(
   tarefa: string,
   idOuNome: string | null | undefined
@@ -220,6 +287,44 @@ async function cmdRun(
 
 async function main(): Promise<void> {
   const args: string[] = process.argv.slice(2);
+
+  if (args.includes("--agents")) {
+    listarAgentes();
+    return;
+  }
+
+  const agentIdx = args.indexOf("--agent");
+  if (agentIdx !== -1) {
+    const nomeAgente = args[agentIdx + 1];
+    if (!nomeAgente) {
+      console.error('Uso: npm run cli -- --agent <nome> "<tarefa>" [--path /caminho/projeto]');
+      listarAgentes();
+      process.exit(1);
+    }
+
+    // Extrair --path se existir
+    const pathIdx = args.indexOf("--path");
+    let caminhoProjeto: string | undefined;
+    if (pathIdx !== -1) {
+      caminhoProjeto = args[pathIdx + 1];
+      if (!caminhoProjeto) {
+        console.error("❌ Caminho do projeto não informado após --path");
+        process.exit(1);
+      }
+    }
+
+    // Pegar a tarefa (tudo entre nome do agente e --path, ou até o final)
+    const fimTarefa = pathIdx !== -1 ? pathIdx : args.length;
+    const restArgs = mergeQuotedTokens(args.slice(agentIdx + 2, fimTarefa));
+    const tarefa = restArgs.join(" ").trim();
+    if (!tarefa) {
+      console.error('❌ Tarefa não informada.');
+      console.error('Uso: npm run cli -- --agent <nome> "<tarefa>" [--path /caminho/projeto]');
+      process.exit(1);
+    }
+    await cmdAgent(nomeAgente, tarefa, caminhoProjeto);
+    return;
+  }
 
   if (args.includes("--list")) {
     await cmdList();
@@ -267,7 +372,7 @@ async function main(): Promise<void> {
 
   console.error("Argumentos não reconhecidos:", args.join(" "));
   console.error(
-    "Comandos: --list | --add | --report | --report-all | --run | (sem args = exemplo)"
+    "Comandos: --agents | --agent <nome> | --list | --add | --report | --report-all | --run | (sem args = exemplo)"
   );
   process.exit(1);
 }
