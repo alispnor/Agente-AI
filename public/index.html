@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agents AI</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --success: #3fb950;
+      --danger: #f85149;
+      --warning: #d29922;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+    a { color: var(--accent); }
+    button { font-family: inherit; cursor: pointer; border: none; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .layout { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 260px; flex-shrink: 0; background: var(--surface);
+      border-right: 1px solid var(--border); padding: 1rem; position: fixed; inset: 0 auto 0 0;
+      display: flex; flex-direction: column; z-index: 20; transition: transform 0.25s ease;
+    }
+    .sidebar.hidden-mobile { transform: translateX(-100%); }
+    .logo { font-size: 1.25rem; font-weight: 700; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; }
+    .nav-btn {
+      display: block; width: 100%; text-align: left; padding: 0.65rem 0.75rem; margin-bottom: 0.35rem;
+      background: transparent; color: var(--text); border-radius: 6px; border: 1px solid transparent;
+    }
+    .nav-btn:hover { border-color: var(--border); }
+    .nav-btn.active { background: #21262d; border-color: var(--accent); color: var(--accent); }
+    .sidebar-footer { margin-top: auto; padding-top: 1rem; font-size: 0.8rem; color: var(--muted); border-top: 1px solid var(--border); }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .status-dot.ok { background: var(--success); }
+    .status-dot.bad { background: var(--danger); }
+
+    .main { margin-left: 260px; flex: 1; padding: 1.25rem; min-width: 0; }
+    .topbar { display: none; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .hamburger { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 0.5rem 0.75rem; border-radius: 6px; }
+
+    h1 { font-size: 1.35rem; margin: 0 0 1rem; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;
+    }
+    .card:hover { border-color: var(--accent); }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+    select, textarea, input {
+      width: 100%; background: #0d1117; border: 1px solid var(--border); color: var(--text);
+      border-radius: 6px; padding: 0.55rem 0.65rem; font-size: 0.95rem;
+    }
+    textarea { min-height: 140px; resize: vertical; }
+    .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+    .btn-primary {
+      background: var(--accent); color: #000; padding: 0.6rem 1rem; border-radius: 6px; font-weight: 600;
+    }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 0.45rem 0.75rem; border-radius: 6px; }
+    .btn-danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 0.45rem 0.75rem; border-radius: 6px; }
+
+    .progress-wrap { display: none; margin-top: 1rem; }
+    .progress-wrap.show { display: block; }
+    .progress-bar { height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; margin-bottom: 0.75rem; }
+    .progress-bar > div {
+      height: 100%; width: 40%; background: linear-gradient(90deg, var(--accent), #79c0ff);
+      animation: slide 1.2s ease-in-out infinite;
+    }
+    @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .agent-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; font-size: 0.9rem; }
+    .timer { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+    .result-panel { display: none; margin-top: 1rem; }
+    .result-panel.show { display: block; }
+    .md-content { line-height: 1.55; }
+    .md-content pre { background: #0d1117; border: 1px solid var(--border); padding: 0.75rem; border-radius: 6px; overflow: auto; }
+    .md-content code { background: #21262d; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.9em; }
+    .md-content h1, .md-content h2, .md-content h3 { margin: 0.75rem 0 0.35rem; }
+
+    .tabs { display: flex; gap: 0.5rem; border-bottom: 1px solid var(--border); margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .tab {
+      padding: 0.45rem 0.65rem; background: transparent; color: var(--muted); border-bottom: 2px solid transparent;
+    }
+    .tab.active { color: var(--accent); border-color: var(--accent); }
+    .tab.active[data-tab="mobile"] { color: #a78bfa; border-color: #a78bfa; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+    .proj-meta { font-size: 0.85rem; color: var(--muted); word-break: break-all; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { border-bottom: 1px solid var(--border); padding: 0.5rem 0.35rem; text-align: left; }
+    tr { cursor: pointer; }
+    tr:hover { background: #21262d; }
+    .badge { display: inline-block; padding: 0.15rem 0.45rem; border-radius: 999px; font-size: 0.75rem; background: #21262d; }
+
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 50; align-items: center; justify-content: center; padding: 1rem;
+    }
+    .modal-overlay.show { display: flex; animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; max-width: 480px; width: 100%; padding: 1rem;
+    }
+    .modal h2 { margin: 0 0 1rem; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center; }
+    .field-error { border-color: var(--danger) !important; }
+    .err-msg { color: var(--danger); font-size: 0.8rem; margin-top: 0.25rem; }
+
+    .drawer {
+      position: fixed; top: 0; right: 0; height: 100%; width: min(520px, 100%); background: var(--surface);
+      border-left: 1px solid var(--border); z-index: 40; transform: translateX(100%); transition: transform 0.25s ease;
+      overflow: auto; padding: 1rem;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-back { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 35; display: none; }
+    .drawer-back.show { display: block; }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .main { margin-left: 0; }
+      .topbar { display: flex; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="logo"><span>⚡</span> Agents AI</div>
+      <button type="button" class="nav-btn active" data-view="task">🚀 Nova Tarefa</button>
+      <button type="button" class="nav-btn" data-view="projects">📁 Projetos</button>
+      <button type="button" class="nav-btn" data-view="history">📜 Histórico</button>
+      <button type="button" class="nav-btn" data-view="reports">📊 Relatórios</button>
+      <div class="sidebar-footer">
+        <span class="status-dot bad" id="healthDot"></span>
+        <span id="healthText">A verificar servidor…</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <button type="button" class="hamburger" id="hamburger" aria-label="Menu">☰</button>
+        <strong>Agents AI</strong>
+      </div>
+
+      <section class="view active" id="view-task">
+        <h1>Nova tarefa</h1>
+        <div class="card">
+          <label for="projSelect">Projeto (opcional)</label>
+          <select id="projSelect"><option value="">— Nenhum —</option></select>
+        </div>
+        <div class="card">
+          <label for="taskText">Descreva a tarefa</label>
+          <textarea id="taskText" rows="6" placeholder="Ex.: Corrigir CORS na API…"></textarea>
+        </div>
+        <div class="card">
+          <label>Modo de execução</label>
+          <div class="row" style="margin-top:0.5rem;">
+            <label class="row" style="gap:0.35rem;"><input type="radio" name="modo" value="paralelo" checked /> Paralelo (mais rápido)</label>
+            <label class="row" style="gap:0.35rem;"><input type="radio" name="modo" value="sequencial" /> Sequencial (mais controlado)</label>
+          </div>
+        </div>
+        <button type="button" class="btn-primary" id="btnRun">▶ Executar Tarefa</button>
+
+        <div class="card progress-wrap" id="progressPanel">
+          <div class="progress-bar"><div></div></div>
+          <div class="row" style="justify-content:space-between;">
+            <span>Execução em curso…</span>
+            <span class="timer" id="elapsed">0s</span>
+          </div>
+          <div id="agentLog"></div>
+        </div>
+
+        <div class="card result-panel" id="resultPanel">
+          <h2 style="margin-top:0;font-size:1rem;">Resposta consolidada</h2>
+          <div class="md-content" id="finalMd"></div>
+          <details style="margin-top:1rem;">
+            <summary>Ver resposta de cada agente</summary>
+            <div class="tabs" id="agentTabs"></div>
+            <div id="agentTabPanels"></div>
+          </details>
+          <div class="row" style="margin-top:1rem;">
+            <button type="button" class="btn-ghost" id="btnDownload">💾 Baixar Relatório</button>
+            <button type="button" class="btn-primary" id="btnNewTask">🔁 Nova Tarefa</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-projects">
+        <div class="row" style="justify-content:space-between;align-items:center;">
+          <h1 style="margin:0;">Projetos</h1>
+          <button type="button" class="btn-primary" id="btnOpenAdd">＋ Cadastrar Projeto</button>
+        </div>
+        <div class="grid" id="projectsGrid"></div>
+      </section>
+
+      <section class="view" id="view-history">
+        <h1>Histórico</h1>
+        <div class="card">
+          <label for="histFilter">Filtrar por projeto</label>
+          <select id="histFilter"><option value="">Todos</option></select>
+        </div>
+        <div class="card" style="overflow:auto;">
+          <table>
+            <thead>
+              <tr><th>Data/hora</th><th>Projeto</th><th>Tarefa</th><th>Agentes</th><th>Duração</th></tr>
+            </thead>
+            <tbody id="histBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="view" id="view-reports">
+        <h1>Relatórios</h1>
+        <div class="card" id="reportsList"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="drawer-back" id="drawerBack"></div>
+  <aside class="drawer" id="drawer">
+    <button type="button" class="btn-ghost" id="drawerClose" style="margin-bottom:1rem;">✕ Fechar</button>
+    <div id="drawerContent"></div>
+  </aside>
+
+  <div class="modal-overlay" id="modalAdd">
+    <div class="modal">
+      <h2>Cadastrar Projeto <button type="button" class="btn-ghost" id="modalClose" style="padding:0.25rem 0.5rem;">×</button></h2>
+      <label for="addPath">Caminho do projeto</label>
+      <input id="addPath" placeholder="/home/user/meu-projeto" />
+      <div class="err-msg" id="errPath"></div>
+      <label for="addName" style="margin-top:0.75rem;">Nome</label>
+      <input id="addName" placeholder="Meu Projeto" />
+      <div class="err-msg" id="errName"></div>
+      <label for="addDesc" style="margin-top:0.75rem;">Descrição (opcional)</label>
+      <input id="addDesc" placeholder="App em React + Node" />
+      <div class="row" style="margin-top:1rem;justify-content:flex-end;">
+        <button type="button" class="btn-ghost" id="addCancel">Cancelar</button>
+        <button type="button" class="btn-primary" id="addSubmit">Cadastrar ✓</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = "";
+    const state = {
+      view: "task",
+      projects: [],
+      history: [],
+      reports: [],
+      selectedProject: null,
+      lastRun: null,
+      healthOk: false,
+    };
+
+    function api(path, method = "GET", body) {
+      const opts = { method, headers: {} };
+      if (body !== undefined) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body);
+      }
+      return fetch(API + path, opts).then(async (r) => {
+        const ct = r.headers.get("content-type") || "";
+        const data = ct.includes("application/json") ? await r.json() : await r.text();
+        if (!r.ok) {
+          const msg = data && data.error ? data.error : (typeof data === "string" ? data : r.statusText);
+          throw new Error(msg || "Erro na API");
+        }
+        return data;
+      });
+    }
+
+    function renderMarkdown(text) {
+      if (!text) return "";
+      return String(text)
+        .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+        .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+        .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+        .replace(/^- (.+)$/gm, "<li>$1</li>")
+        .replace(/\n/g, "<br>");
+    }
+
+    function formatDur(ms) {
+      if (ms == null) return "—";
+      const s = Math.round(ms / 1000);
+      if (s < 60) return s + "s";
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return m + "m" + r + "s";
+    }
+
+    function formatDate(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      return d.toLocaleString("pt-PT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+
+    function navigate(view) {
+      state.view = view;
+      document.querySelectorAll(".nav-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.view === view);
+      });
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+      const map = { task: "view-task", projects: "view-projects", history: "view-history", reports: "view-reports" };
+      const el = document.getElementById(map[view]);
+      if (el) el.classList.add("active");
+      if (view === "projects") renderProjects();
+      if (view === "history") renderHistory();
+      if (view === "reports") loadReports().then(() => renderReports());
+    }
+
+    async function loadProjects() {
+      state.projects = await api("/api/projects");
+      const sel = document.getElementById("projSelect");
+      const hf = document.getElementById("histFilter");
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— Nenhum —</option>';
+      hf.innerHTML = '<option value="">Todos</option>';
+      state.projects.forEach((p) => {
+        const o = document.createElement("option");
+        o.value = p.id;
+        o.textContent = p.nome;
+        sel.appendChild(o);
+        const o2 = document.createElement("option");
+        o2.value = p.id;
+        o2.textContent = p.nome;
+        hf.appendChild(o2);
+      });
+      if (state.selectedProject) sel.value = state.selectedProject;
+      else if (cur) sel.value = cur;
+    }
+
+    async function loadHistory() {
+      const pid = document.getElementById("histFilter").value;
+      const q = pid ? "?projetoId=" + encodeURIComponent(pid) : "";
+      state.history = await api("/api/history" + q);
+    }
+
+    async function loadReports() {
+      state.reports = await api("/api/reports");
+    }
+
+    function renderProjects() {
+      const grid = document.getElementById("projectsGrid");
+      grid.innerHTML = "";
+      if (!state.projects.length) {
+        grid.innerHTML = "<p class=\"muted\">Nenhum projeto cadastrado.</p>";
+        return;
+      }
+      state.projects.forEach((p) => {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML =
+          "<strong>📁 " + escapeHtml(p.nome) + "</strong>" +
+          "<p class=\"proj-meta\">" + escapeHtml(p.caminho) + "</p>" +
+          "<p>" + escapeHtml(p.descricao || "") + "</p>" +
+          "<p class=\"proj-meta\">" + (p.totalTarefas || 0) + " tarefas executadas</p>" +
+          "<p class=\"proj-meta\">Cadastrado: " + formatDate(p.registradoEm) + "</p>" +
+          "<div class=\"row\" style=\"margin-top:0.75rem;\">" +
+          "<button type=\"button\" class=\"btn-primary use-proj\" data-id=\"" + escapeHtml(p.id) + "\">▶ Usar</button>" +
+          "<button type=\"button\" class=\"btn-danger rm-proj\" data-id=\"" + escapeHtml(p.id) + "\">🗑 Remover</button>" +
+          "</div>";
+        grid.appendChild(div);
+      });
+      grid.querySelectorAll(".use-proj").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.selectedProject = btn.dataset.id;
+          document.getElementById("projSelect").value = btn.dataset.id;
+          navigate("task");
+        });
+      });
+      grid.querySelectorAll(".rm-proj").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.id;
+          const row = btn.closest(".card");
+          let confirmEl = row.querySelector(".confirm-rm");
+          if (!confirmEl) {
+            confirmEl = document.createElement("div");
+            confirmEl.className = "row confirm-rm";
+            confirmEl.style.marginTop = "0.5rem";
+            confirmEl.innerHTML = "<span>Tem a certeza?</span>" +
+              "<button type=\"button\" class=\"btn-danger yes-rm\" data-id=\"" + id + "\">Sim, remover</button>" +
+              "<button type=\"button\" class=\"btn-ghost no-rm\">Cancelar</button>";
+            row.appendChild(confirmEl);
+            confirmEl.querySelector(".yes-rm").addEventListener("click", async () => {
+              await api("/api/projects/" + encodeURIComponent(id), "DELETE");
+              await loadProjects();
+              renderProjects();
+            });
+            confirmEl.querySelector(".no-rm").addEventListener("click", () => confirmEl.remove());
+          }
+        });
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    async function renderHistory() {
+      await loadHistory();
+      const tb = document.getElementById("histBody");
+      tb.innerHTML = "";
+      state.history.forEach((ex) => {
+        const tr = document.createElement("tr");
+        const n = (ex.agentesUsados || ex.plano?.agentes_necessarios || []).length;
+        tr.innerHTML =
+          "<td>" + formatDate(ex.executadoEm) + "</td>" +
+          "<td>" + escapeHtml(ex.projetoNome || "—") + "</td>" +
+          "<td>" + escapeHtml((ex.tarefa || "").slice(0, 60)) + (ex.tarefa && ex.tarefa.length > 60 ? "…" : "") + "</td>" +
+          "<td><span class=\"badge\" style=\"background:" + (n > 3 ? "var(--warning)" : "#21262d") + "\">" + n + "</span></td>" +
+          "<td>" + formatDur(ex.duracaoMs) + "</td>";
+        tr.addEventListener("click", () => openDrawer(ex.id));
+        tb.appendChild(tr);
+      });
+    }
+
+    async function openDrawer(execId) {
+      const ex = await api("/api/history/" + encodeURIComponent(execId));
+      const drawer = document.getElementById("drawer");
+      const back = document.getElementById("drawerBack");
+      const content = document.getElementById("drawerContent");
+      const agents = Object.keys(ex.resultadosPorAgente || {});
+      let tabs = "";
+      let panels = "";
+      agents.forEach((a, i) => {
+        tabs += "<button type=\"button\" class=\"tab" + (i === 0 ? " active" : "") + "\" data-tab=\"" + a + "\">" + a + "</button>";
+        panels += "<div class=\"tab-panel" + (i === 0 ? " active" : "") + "\" data-panel=\"" + a + "\"><div class=\"md-content\">" + renderMarkdown(ex.resultadosPorAgente[a]) + "</div></div>";
+      });
+      content.innerHTML =
+        "<h3>Execução</h3><p class=\"proj-meta\">" + escapeHtml(ex.executadoEm) + "</p>" +
+        "<div class=\"md-content\" style=\"margin:1rem 0;\">" + renderMarkdown(ex.respostaFinal) + "</div>" +
+        "<h4>Por agente</h4><div class=\"tabs\" id=\"dTabs\">" + tabs + "</div><div id=\"dPanels\">" + panels + "</div>";
+      drawer.classList.add("open");
+      back.classList.add("show");
+      content.querySelectorAll("#dTabs .tab").forEach((t) => {
+        t.addEventListener("click", () => {
+          content.querySelectorAll("#dTabs .tab").forEach((x) => x.classList.remove("active"));
+          content.querySelectorAll("#dPanels .tab-panel").forEach((x) => x.classList.remove("active"));
+          t.classList.add("active");
+          content.querySelector("[data-panel=\"" + t.dataset.tab + "\"]").classList.add("active");
+        });
+      });
+    }
+
+    function renderReports() {
+      const box = document.getElementById("reportsList");
+      box.innerHTML = "";
+      if (!state.reports.length) {
+        box.textContent = "Nenhum relatório .txt encontrado.";
+        return;
+      }
+      state.reports.forEach((r) => {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.style.padding = "0.5rem 0";
+        row.style.borderBottom = "1px solid var(--border)";
+        row.innerHTML =
+          "<span>📄 " + escapeHtml(r.nome) + "</span>" +
+          "<span class=\"proj-meta\">" + r.tamanhoKb + " KB</span>" +
+          "<span class=\"proj-meta\">" + formatDate(r.criadoEm) + "</span>" +
+          "<button type=\"button\" class=\"btn-ghost dl-rep\" data-name=\"" + escapeHtml(r.nome) + "\">⬇ Baixar</button>";
+        box.appendChild(row);
+      });
+      box.querySelectorAll(".dl-rep").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const name = btn.dataset.name;
+          const t = await fetch(API + "/api/reports/file?name=" + encodeURIComponent(name));
+          const blob = await t.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = name;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        });
+      });
+    }
+
+    let healthTimer;
+    async function pingHealth() {
+      try {
+        await api("/api/health");
+        state.healthOk = true;
+        document.getElementById("healthDot").className = "status-dot ok";
+        document.getElementById("healthText").textContent = "Servidor OK";
+      } catch {
+        state.healthOk = false;
+        document.getElementById("healthDot").className = "status-dot bad";
+        document.getElementById("healthText").textContent = "Sem ligação";
+      }
+    }
+
+    const AGENT_LABELS = ["frontend", "backend", "qa", "devops", "uxui", "mobile"];
+    let runTimerId, runAnimId;
+
+    async function executarTarefa() {
+      const txt = document.getElementById("taskText").value.trim();
+      if (!txt) {
+        alert("Descreva a tarefa.");
+        return;
+      }
+      const pid = document.getElementById("projSelect").value || null;
+      const modo = document.querySelector("input[name=\"modo\"]:checked").value;
+
+      document.getElementById("progressPanel").classList.add("show");
+      document.getElementById("resultPanel").classList.remove("show");
+      document.getElementById("btnRun").disabled = true;
+
+      const agentLog = document.getElementById("agentLog");
+      agentLog.innerHTML = "";
+      let step = 0;
+      const phases = ["Gestor (plano)", ...AGENT_LABELS.map((a) => (a === "mobile" ? "📱 " : "") + "Agente " + a), "Consolidação"];
+      phases.forEach((ph, i) => {
+        const d = document.createElement("div");
+        d.className = "agent-row";
+        d.dataset.phase = String(i);
+        const phSpan =
+          ph.indexOf("Agente mobile") !== -1
+            ? "<span title=\"React Native, Flutter, iOS, Android\">" + ph + "</span>"
+            : "<span>" + ph + "</span>";
+        d.innerHTML = "<span>⏳</span>" + phSpan + "<span class=\"proj-meta\"></span>";
+        agentLog.appendChild(d);
+      });
+
+      let sec = 0;
+      document.getElementById("elapsed").textContent = "0s";
+      runTimerId = setInterval(() => {
+        sec++;
+        document.getElementById("elapsed").textContent = sec + "s";
+      }, 1000);
+
+      runAnimId = setInterval(() => {
+        const rows = agentLog.querySelectorAll(".agent-row");
+        rows.forEach((r, i) => {
+          const sp = r.querySelector("span");
+          if (i < step) { sp.textContent = "✅"; r.style.opacity = "1"; }
+          else if (i === step) { sp.textContent = "🔄"; r.style.animation = "pulse 1s infinite"; }
+          else { sp.textContent = "⏳"; r.style.opacity = "0.6"; }
+        });
+        step = (step + 1) % rows.length;
+      }, 900);
+
+      try {
+        const body = { tarefa: txt, modo };
+        if (pid) body.projetoId = pid;
+        const out = await api("/api/run", "POST", body);
+        state.lastRun = out;
+        document.getElementById("finalMd").innerHTML = renderMarkdown(out.respostaFinal || "");
+        const tabs = document.getElementById("agentTabs");
+        const panels = document.getElementById("agentTabPanels");
+        tabs.innerHTML = "";
+        panels.innerHTML = "";
+        const label = { frontend: "Frontend", backend: "Backend", qa: "QA", devops: "DevOps", uxui: "UX/UI", mobile: "Mobile" };
+        const resMap = out.resultados || {};
+        const keys = Object.keys(resMap);
+        if (keys.length === 0) {
+          const p = document.createElement("p");
+          p.className = "proj-meta";
+          p.textContent = "Nenhuma resposta por agente nesta execução.";
+          panels.appendChild(p);
+        } else {
+          keys.forEach((k, i) => {
+            const tb = document.createElement("button");
+            tb.type = "button";
+            tb.className = "tab" + (i === 0 ? " active" : "");
+            tb.dataset.tab = k;
+            tb.textContent = label[k] || k;
+            if (k === "mobile") tb.title = "React Native, Flutter, iOS, Android";
+            tabs.appendChild(tb);
+            const pan = document.createElement("div");
+            pan.className = "tab-panel" + (i === 0 ? " active" : "");
+            pan.dataset.panel = k;
+            pan.innerHTML = "<div class=\"md-content\">" + renderMarkdown(resMap[k] || "") + "</div>";
+            panels.appendChild(pan);
+          });
+          tabs.querySelectorAll(".tab").forEach((t) => {
+            t.addEventListener("click", () => {
+              tabs.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+              panels.querySelectorAll(".tab-panel").forEach((x) => x.classList.remove("active"));
+              t.classList.add("active");
+              panels.querySelector("[data-panel=\"" + t.dataset.tab + "\"]").classList.add("active");
+            });
+          });
+        }
+        document.getElementById("resultPanel").classList.add("show");
+        document.getElementById("btnDownload").onclick = () => {
+          const n = out.relatorioNome;
+          if (!n) return;
+          fetch(API + "/api/reports/file?name=" + encodeURIComponent(n))
+            .then((r) => r.blob())
+            .then((blob) => {
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = n;
+              a.click();
+              URL.revokeObjectURL(a.href);
+            });
+        };
+        await loadProjects();
+        await loadHistory();
+      } catch (e) {
+        alert(e.message || String(e));
+      } finally {
+        clearInterval(runTimerId);
+        clearInterval(runAnimId);
+        document.getElementById("progressPanel").classList.remove("show");
+        document.getElementById("btnRun").disabled = false;
+      }
+    }
+
+    function resetTaskForm() {
+      document.getElementById("taskText").value = "";
+      document.getElementById("resultPanel").classList.remove("show");
+    }
+
+    async function init() {
+      await pingHealth();
+      healthTimer = setInterval(pingHealth, 10000);
+      await loadProjects();
+      await loadHistory();
+      await loadReports();
+
+      document.querySelectorAll(".nav-btn").forEach((b) => {
+        b.addEventListener("click", () => navigate(b.dataset.view));
+      });
+      document.getElementById("btnRun").addEventListener("click", executarTarefa);
+      document.getElementById("btnNewTask").addEventListener("click", resetTaskForm);
+      document.getElementById("histFilter").addEventListener("change", renderHistory);
+
+      document.getElementById("btnOpenAdd").addEventListener("click", () => {
+        document.getElementById("modalAdd").classList.add("show");
+      });
+      function closeModal() {
+        document.getElementById("modalAdd").classList.remove("show");
+        ["addPath", "addName", "addDesc"].forEach((id) => {
+          document.getElementById(id).classList.remove("field-error");
+        });
+        ["errPath", "errName"].forEach((id) => { document.getElementById(id).textContent = ""; });
+      }
+      document.getElementById("modalClose").addEventListener("click", closeModal);
+      document.getElementById("addCancel").addEventListener("click", closeModal);
+      document.getElementById("addSubmit").addEventListener("click", async () => {
+        const pathVal = document.getElementById("addPath").value.trim();
+        const nameVal = document.getElementById("addName").value.trim();
+        const descVal = document.getElementById("addDesc").value.trim();
+        let ok = true;
+        if (!pathVal) {
+          document.getElementById("addPath").classList.add("field-error");
+          document.getElementById("errPath").textContent = "Caminho obrigatório.";
+          ok = false;
+        } else document.getElementById("errPath").textContent = "";
+        if (!nameVal) {
+          document.getElementById("addName").classList.add("field-error");
+          document.getElementById("errName").textContent = "Nome obrigatório.";
+          ok = false;
+        } else document.getElementById("errName").textContent = "";
+        if (!ok) return;
+        await api("/api/projects", "POST", { caminho: pathVal, nome: nameVal, descricao: descVal });
+        closeModal();
+        await loadProjects();
+        renderProjects();
+      });
+
+      document.getElementById("drawerClose").addEventListener("click", () => {
+        document.getElementById("drawer").classList.remove("open");
+        document.getElementById("drawerBack").classList.remove("show");
+      });
+      document.getElementById("drawerBack").addEventListener("click", () => {
+        document.getElementById("drawer").classList.remove("open");
+        document.getElementById("drawerBack").classList.remove("show");
+      });
+
+      document.getElementById("hamburger").addEventListener("click", () => {
+        document.getElementById("sidebar").classList.toggle("open");
+      });
+
+      navigate("task");
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>

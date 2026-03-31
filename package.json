@@ -1,0 +1,30 @@
+{
+  "name": "agents-ai",
+  "version": "2.0.0",
+  "description": "Sistema multi-agente de desenvolvimento com TypeScript",
+  "type": "module",
+  "scripts": {
+    "start": "node dist/server.js",
+    "server": "node dist/server.js",
+    "cli": "node dist/index.js",
+    "dev": "tsx watch src/server.ts",
+    "dev:cli": "tsx watch src/index.ts",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "docker:build": "docker build -t agents-ai .",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
+  },
+  "dependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
