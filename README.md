@@ -51,7 +51,7 @@ npm start
 # ou em desenvolvimento (sem build prévio)
 npm run dev
 
-# Acesse no navegador:
+# Acesse no navegador (ou a porta definida em PORT no .env):
 # http://localhost:3000
 ```
 
@@ -63,9 +63,13 @@ A interface em `public/index.html` permite cadastrar projetos, executar tarefas,
 # Copiar e configurar .env
 cp .env.example .env
 # Edite o .env com sua ANTHROPIC_API_KEY
+# Opcional: AGENTS_AI_HOST_PORT (porta no host; predefinido 3001 para não colidir com outra app na 3000)
 
 # Subir com Docker Compose
 docker compose up -d
+
+# Interface no navegador (predefinido host 3001):
+# http://localhost:3001
 
 # Ver logs
 

@@ -5,7 +5,8 @@ services:
     build: .
     container_name: agents-ai
     ports:
-      - "3000:3000"
+      # Host: evita conflito com outro serviço na 3000; dentro do container continua 3000
+      - "${AGENTS_AI_HOST_PORT:-3001}:3000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NODE_ENV=production
