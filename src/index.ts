@@ -1,6 +1,7 @@
 import "./loadEnv.js";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import Orchestrator from "./orchestrator/orchestrator.js";
 import frontendAgent from "./agents/frontendAgent.js";
@@ -9,6 +10,9 @@ import qaAgent from "./agents/qaAgent.js";
 import devopsAgent from "./agents/devopsAgent.js";
 import uxuiAgent from "./agents/uxuiAgent.js";
 import mobileAgent from "./agents/mobileAgent.js";
+import securityAgent from "./agents/securityAgent.js";
+import dataAnalystAgent from "./agents/dataAnalystAgent.js";
+import architectAgent from "./agents/architectAgent.js";
 import {
   listarProjetos,
   registrarProjeto,
@@ -35,6 +39,9 @@ const AGENTES: Record<AgentName, (tarefa: string, ctx?: string) => Promise<strin
   devops: devopsAgent,
   uxui: uxuiAgent,
   mobile: mobileAgent,
+  security: securityAgent,
+  data: dataAnalystAgent,
+  architect: architectAgent,
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -221,6 +228,9 @@ function listarAgentes(): void {
   console.log("  devops    — Engenheiro DevOps/SRE (CI/CD, Docker, K8s, cloud)");
   console.log("  uxui      — Designer UX/UI Sênior (design system, acessibilidade)");
   console.log("  mobile    — Desenvolvedor Mobile Sênior (React Native, Flutter, iOS, Android)");
+  console.log("  security  — Engenheiro de Segurança Sênior (OWASP, AppSec, auditoria, compliance)");
+  console.log("  data      — Analista de Dados / Gerente de Dados (SQL, NoSQL, tuning, modelagem)");
+  console.log("  architect — Arquiteto de Software (análise de projeto, escalabilidade, design patterns)");
   console.log('\nUso: npm run cli -- --agent <nome> "<tarefa>" [--path /caminho/do/projeto]');
   console.log('Exemplo: npm run cli -- --agent backend "Criar API REST com JWT" --path /home/user/meu-projeto');
 }
@@ -263,6 +273,45 @@ async function cmdAgent(nomeAgente: string, tarefa: string, caminhoProjeto?: str
   console.log(resposta);
 }
 
+function criarPerguntarUsuarioCLI(): (perguntas: string[]) => Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return async (perguntas: string[]): Promise<string> => {
+    console.log("\n" + "─".repeat(60));
+    console.log("💬 O gestor precisa de esclarecimento antes de continuar:");
+    console.log("─".repeat(60));
+    for (let i = 0; i < perguntas.length; i++) {
+      console.log(`  ${i + 1}. ${perguntas[i]}`);
+    }
+    console.log("─".repeat(60));
+    console.log("Responda abaixo (pode responder tudo de uma vez):");
+    console.log("(pressione Enter duas vezes para enviar)\n");
+
+    const lines: string[] = [];
+    let emptyCount = 0;
+
+    return new Promise<string>((resolve) => {
+      const onLine = (line: string): void => {
+        if (line.trim() === "") {
+          emptyCount++;
+          if (emptyCount >= 2 && lines.length > 0) {
+            rl.removeListener("line", onLine);
+            resolve(lines.join("\n"));
+            return;
+          }
+        } else {
+          emptyCount = 0;
+        }
+        lines.push(line);
+      };
+      rl.on("line", onLine);
+    });
+  };
+}
+
 async function cmdRun(
   tarefa: string,
   idOuNome: string | null | undefined
@@ -276,10 +325,13 @@ async function cmdRun(
       );
     }
   }
+
+  const perguntarUsuario = criarPerguntarUsuarioCLI();
   const orch = new Orchestrator();
   const out = await orch.processarTarefa(tarefa, {
     projeto: projeto ?? null,
     salvarHistorico: projeto !== null,
+    perguntarUsuario,
   });
   console.log("\n--- RESPOSTA FINAL ---\n");
   console.log(out.respostaFinal);

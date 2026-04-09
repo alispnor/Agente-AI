@@ -166,9 +166,17 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
           return;
         }
       }
+
+      // Em modo API, o manager não faz perguntas interativas.
+      // Se respostas_esclarecimento vier no body, incluí-las na tarefa.
+      let tarefaFinal = String(tarefa);
+      if (body.respostas_esclarecimento && String(body.respostas_esclarecimento).trim() !== "") {
+        tarefaFinal += `\n\nESCLARECIMENTOS ADICIONAIS DO USUÁRIO:\n${body.respostas_esclarecimento}`;
+      }
+
       const orch = new Orchestrator();
       const out = await withTimeout(
-        orch.processarTarefa(String(tarefa), {
+        orch.processarTarefa(tarefaFinal, {
           projeto,
           modo,
           salvarHistorico: projeto !== null,

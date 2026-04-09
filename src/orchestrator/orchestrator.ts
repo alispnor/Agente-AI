@@ -8,6 +8,9 @@ import qaAgent from "../agents/qaAgent.js";
 import devopsAgent from "../agents/devopsAgent.js";
 import uxuiAgent from "../agents/uxuiAgent.js";
 import mobileAgent from '../agents/mobileAgent.js';
+import securityAgent from '../agents/securityAgent.js';
+import dataAnalystAgent from '../agents/dataAnalystAgent.js';
+import architectAgent from '../agents/architectAgent.js';
 import { gerarContextoProjeto } from "../project/projectReader.js";
 import { salvarExecucao } from "../history/historyManager.js";
 import { incrementarTarefas } from "../project/projectRegistry.js";
@@ -19,6 +22,7 @@ import {
 import type {
   AgentName,
   AgentResults,
+  AskUserFn,
   Execution,
   OrchestratorOptions,
   OrchestratorResult,
@@ -42,26 +46,32 @@ export default class Orchestrator {
       devops: devopsAgent,
       uxui: uxuiAgent,
       mobile: (tarefa, ctx) => mobileAgent(tarefa, ctx),
-
+      security: securityAgent,
+      data: dataAnalystAgent,
+      architect: architectAgent,
     };
   }
 
   private async analisarTarefa(
     tarefa: string,
-    contextoGeral = ""
+    contextoGeral = "",
+    perguntarUsuario?: AskUserFn,
+    maxEsclarecimentos = 3
   ): Promise<TaskPlan> {
-    return managerAgent(tarefa, contextoGeral);
+    return managerAgent(tarefa, contextoGeral, perguntarUsuario, maxEsclarecimentos);
   }
 
+  /**
+   * Executa agentes respeitando a ordem_execucao do plano.
+   * Cada grupo interno roda em paralelo; grupos rodam sequencialmente entre si.
+   * Se ordem_execucao não existir, usa o modo clássico (paralelo ou sequencial).
+   */
   private async executarAgentes(
     plano: TaskPlan,
     contextosPorAgente: Partial<Record<AgentName, string>> = {},
     modo: "paralelo" | "sequencial" = "paralelo",
     logAgentes = true
   ): Promise<AgentResults> {
-    const nomes = Array.isArray(plano.agentes_necessarios)
-      ? plano.agentes_necessarios
-      : [];
     const subtarefas = plano.subtarefas ?? {};
     const resultados: AgentResults = {};
 
@@ -92,6 +102,44 @@ export default class Orchestrator {
       return [nome, resposta];
     };
 
+    // Se tem ordem_execucao definida, respeitar grupos
+    if (plano.ordem_execucao && plano.ordem_execucao.length > 0) {
+      if (logAgentes) {
+        const etapas = plano.ordem_execucao
+          .map((g, i) => `  Etapa ${i + 1}: [${g.join(", ")}]`)
+          .join("\n");
+        console.log(`📋 Ordem de execução definida pelo gestor:\n${etapas}\n`);
+      }
+
+      for (let i = 0; i < plano.ordem_execucao.length; i++) {
+        const grupo = plano.ordem_execucao[i];
+        if (!grupo || grupo.length === 0) continue;
+
+        if (logAgentes) {
+          console.log(`\n── Etapa ${i + 1}/${plano.ordem_execucao.length}: [${grupo.join(", ")}] ──`);
+        }
+
+        if (grupo.length === 1) {
+          const nome = grupo[0]!;
+          const [k, v] = await executarUm(nome);
+          resultados[k] = v;
+        } else {
+          // Executar grupo em paralelo
+          const pairs = await Promise.all(grupo.map((nome) => executarUm(nome)));
+          for (const [k, v] of pairs) {
+            resultados[k] = v;
+          }
+        }
+      }
+
+      return resultados;
+    }
+
+    // Fallback: modo clássico
+    const nomes = Array.isArray(plano.agentes_necessarios)
+      ? plano.agentes_necessarios
+      : [];
+
     if (modo === "sequencial") {
       for (const nome of nomes) {
         const [k, v] = await executarUm(nome);
@@ -116,6 +164,8 @@ export default class Orchestrator {
     const projeto = opcoes.projeto ?? null;
     const salvarHistorico = opcoes.salvarHistorico ?? true;
     const logVerbose = verbose !== false;
+    const perguntarUsuario = opcoes.perguntarUsuario;
+    const maxEsclarecimentos = opcoes.maxEsclarecimentos ?? 3;
 
     if (logVerbose) {
       console.log("\n" + "=".repeat(72));
@@ -150,10 +200,28 @@ export default class Orchestrator {
       );
     }
 
-    const plano = await this.analisarTarefa(tarefa, contextoGeral);
+    if (logVerbose) {
+      console.log("🧠 Analisando tarefa com o gestor...\n");
+    }
+
+    const plano = await this.analisarTarefa(
+      tarefa,
+      contextoGeral,
+      perguntarUsuario,
+      maxEsclarecimentos
+    );
 
     if (logVerbose) {
-      console.log("Plano do gerente:\n", JSON.stringify(plano, null, 2), "\n");
+      console.log("\n📋 Plano do gestor:");
+      console.log(`   Análise: ${plano.analise}`);
+      console.log(`   Agentes: [${plano.agentes_necessarios.join(", ")}]`);
+      if (plano.criterios_aceitacao) {
+        console.log(`   Critérios: ${plano.criterios_aceitacao}`);
+      }
+      if (plano.riscos) {
+        console.log(`   Riscos: ${plano.riscos}`);
+      }
+      console.log();
     }
 
     if (projeto && projeto.caminho && fs.existsSync(projeto.caminho)) {
