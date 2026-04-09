@@ -36,12 +36,46 @@ PROJECT_PATH=/home/seu-usuario/projects
 docker compose up -d --build
 ```
 
-Verificar:
+Verificar se esta rodando:
 
 ```bash
 docker compose ps
 curl http://localhost:3001/api/health
 ```
+
+### 3. Verificar status de todos os agentes
+
+Antes de enviar tarefas, verifique se todos os agentes e o Gerente estao operacionais:
+
+```bash
+docker compose exec agents-ai node dist/index.js --status
+```
+
+Saida esperada:
+
+```
+============================================================
+  VERIFICAÇÃO DE STATUS — Agentes IA
+============================================================
+  Testando 10 componentes (9 agentes + gerente)
+  Cada agente recebe um ping e deve responder...
+
+  [1/10]  🧠 Gerente IA (manager)...
+         ✅ PRONTO (17.4s) — Planejamento funcional, 1 agente(s) no plano
+  [2/10]  🤖 frontend...
+         ✅ PRONTO (3.3s) — "OK"
+  [3/10]  🤖 backend...
+         ✅ PRONTO (1.8s) — "OK"
+  ...
+  [10/10] 🤖 architect...
+         ✅ PRONTO (12.6s) — "OK"
+
+  RESULTADO
+  ✅ Prontos:    10/10
+  🟢 Todos os agentes estão operacionais!
+```
+
+O teste roda **um agente por vez** para nao estourar rate limit. Se algum falhar, aparece `❌ FALHA` com o motivo.
 
 ---
 
@@ -283,6 +317,9 @@ docker compose up -d --build          # Subir/rebuild
 docker compose down                   # Parar
 docker compose logs -f                # Logs
 docker compose ps                     # Status
+
+# ── Verificar agentes ──
+docker compose exec agents-ai node dist/index.js --status             # Testar todos (um por um)
 
 # ── Clientes ──
 docker compose exec agents-ai node dist/index.js --list                    # Listar

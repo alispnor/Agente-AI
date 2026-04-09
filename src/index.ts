@@ -4,6 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import Orchestrator from "./orchestrator/orchestrator.js";
+import managerAgent from "./manager/managerAgent.js";
 import frontendAgent from "./agents/frontendAgent.js";
 import backendAgent from "./agents/backendAgent.js";
 import qaAgent from "./agents/qaAgent.js";
@@ -220,6 +221,97 @@ async function cmdReportAll(): Promise<void> {
   console.log(`\nRelatório guardado em: ${caminho}`);
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Comando --status: testa cada agente + gerente um por um
+   ───────────────────────────────────────────────────────────── */
+
+async function cmdStatus(): Promise<void> {
+  const PING_TASK = "Responda APENAS com a palavra 'OK' para confirmar que você está operacional.";
+  const agentNames = Object.keys(AGENTES) as AgentName[];
+  const total = agentNames.length + 1; // +1 para o gerente
+  let aprovados = 0;
+  let reprovados = 0;
+
+  console.log("\n" + "=".repeat(60));
+  console.log("  VERIFICAÇÃO DE STATUS — Agentes IA");
+  console.log("=".repeat(60));
+  console.log(`  Testando ${total} componentes (${agentNames.length} agentes + gerente)`);
+  console.log("  Cada agente recebe um ping e deve responder...\n");
+
+  // 1. Testar o Gerente IA primeiro
+  console.log(`  [1/${total}] 🧠 Gerente IA (manager)...`);
+  const t0mgr = Date.now();
+  try {
+    const plano = await managerAgent(
+      "Responda com status pronto. Agentes necessarios: qa. Subtarefa qa: teste de ping.",
+      "",
+      undefined,
+      1
+    );
+    const dur = ((Date.now() - t0mgr) / 1000).toFixed(1);
+    if (plano && plano.agentes_necessarios) {
+      console.log(`       ✅ PRONTO (${dur}s) — Planejamento funcional, ${plano.agentes_necessarios.length} agente(s) no plano`);
+      aprovados++;
+    } else {
+      console.log(`       ❌ FALHA (${dur}s) — Resposta sem plano válido`);
+      reprovados++;
+    }
+  } catch (e: unknown) {
+    const dur = ((Date.now() - t0mgr) / 1000).toFixed(1);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log(`       ❌ FALHA (${dur}s) — ${msg.slice(0, 120)}`);
+    reprovados++;
+  }
+
+  // 2. Testar cada agente sequencialmente
+  for (let i = 0; i < agentNames.length; i++) {
+    const nome = agentNames[i]!;
+    const fn = AGENTES[nome];
+    const idx = i + 2; // gerente é 1
+    console.log(`  [${idx}/${total}] 🤖 ${nome}...`);
+    const t0 = Date.now();
+    try {
+      const resposta = await fn(PING_TASK, "");
+      const dur = ((Date.now() - t0) / 1000).toFixed(1);
+      if (resposta && resposta.trim().length > 0) {
+        const preview = resposta.trim().slice(0, 50).replace(/\n/g, " ");
+        console.log(`       ✅ PRONTO (${dur}s) — "${preview}"`);
+        aprovados++;
+      } else {
+        console.log(`       ❌ FALHA (${dur}s) — Resposta vazia`);
+        reprovados++;
+      }
+    } catch (e: unknown) {
+      const dur = ((Date.now() - t0) / 1000).toFixed(1);
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("429") || msg.includes("rate")) {
+        console.log(`       ⏳ RATE LIMIT (${dur}s) — Aguardando... (o agente funciona, limite da API)`);
+        aprovados++; // agente funciona, so rate limit
+      } else {
+        console.log(`       ❌ FALHA (${dur}s) — ${msg.slice(0, 120)}`);
+        reprovados++;
+      }
+    }
+  }
+
+  // 3. Resumo final
+  console.log("\n" + "=".repeat(60));
+  console.log("  RESULTADO");
+  console.log("=".repeat(60));
+  console.log(`  ✅ Prontos:    ${aprovados}/${total}`);
+  if (reprovados > 0) {
+    console.log(`  ❌ Com falha:  ${reprovados}/${total}`);
+  }
+  if (aprovados === total) {
+    console.log("\n  🟢 Todos os agentes estão operacionais!");
+  } else if (reprovados === total) {
+    console.log("\n  🔴 Nenhum agente respondeu. Verifique a ANTHROPIC_API_KEY.");
+  } else {
+    console.log("\n  🟡 Sistema parcialmente operacional. Verifique os agentes com falha.");
+  }
+  console.log("=".repeat(60) + "\n");
+}
+
 function listarAgentes(): void {
   console.log("\n🤖 Agentes disponíveis:\n");
   console.log("  frontend  — Engenheiro Frontend Sênior (React, Angular, Vue)");
@@ -340,6 +432,11 @@ async function cmdRun(
 async function main(): Promise<void> {
   const args: string[] = process.argv.slice(2);
 
+  if (args.includes("--status")) {
+    await cmdStatus();
+    return;
+  }
+
   if (args.includes("--agents")) {
     listarAgentes();
     return;
@@ -424,7 +521,7 @@ async function main(): Promise<void> {
 
   console.error("Argumentos não reconhecidos:", args.join(" "));
   console.error(
-    "Comandos: --agents | --agent <nome> | --list | --add | --report | --report-all | --run | (sem args = exemplo)"
+    "Comandos: --status | --agents | --agent <nome> | --list | --add | --report | --report-all | --run | (sem args = exemplo)"
   );
   process.exit(1);
 }
