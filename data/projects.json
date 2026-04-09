@@ -1,3 +1,12 @@
 {
-  "projects": []
+  "projects": [
+    {
+      "id": "1775760431332",
+      "nome": "Guep",
+      "caminho": "/mnt/projects/ai-base-template",
+      "descricao": "Template base da empresa GuepTech - sistema de chamados/assistencia",
+      "registradoEm": "2026-04-09T18:47:11.332Z",
+      "totalTarefas": 1
+    }
+  ]
 }

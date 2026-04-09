@@ -15,7 +15,7 @@ COPY public/ ./public/
 COPY data/ ./data/
 
 RUN apk add --no-cache wget
-RUN mkdir -p data/history reports
+RUN mkdir -p data/history reports clients
 
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

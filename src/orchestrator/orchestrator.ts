@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import managerAgent, {
   consolidarResultados,
 } from "../manager/managerAgent.js";
@@ -102,54 +103,34 @@ export default class Orchestrator {
       return [nome, resposta];
     };
 
-    // Se tem ordem_execucao definida, respeitar grupos
+    // ── MODO SEQUENCIAL ANTI-429 ──
+    // Todos os agentes rodam estritamente um por vez para evitar
+    // estourar o rate limit da API Anthropic (10k TPM).
+    // A ordem_execucao do gestor é respeitada, mas sem paralelismo.
+    console.log(`\n🔒 [ORQUESTRADOR] Rodando em modo sequencial anti-429\n`);
+
+    // Montar lista ordenada de agentes
+    let agentesOrdenados: AgentName[];
+
     if (plano.ordem_execucao && plano.ordem_execucao.length > 0) {
+      // Achatar os grupos mantendo a ordem definida pelo gestor
+      agentesOrdenados = plano.ordem_execucao.flat();
       if (logAgentes) {
         const etapas = plano.ordem_execucao
           .map((g, i) => `  Etapa ${i + 1}: [${g.join(", ")}]`)
           .join("\n");
-        console.log(`📋 Ordem de execução definida pelo gestor:\n${etapas}\n`);
-      }
-
-      for (let i = 0; i < plano.ordem_execucao.length; i++) {
-        const grupo = plano.ordem_execucao[i];
-        if (!grupo || grupo.length === 0) continue;
-
-        if (logAgentes) {
-          console.log(`\n── Etapa ${i + 1}/${plano.ordem_execucao.length}: [${grupo.join(", ")}] ──`);
-        }
-
-        if (grupo.length === 1) {
-          const nome = grupo[0]!;
-          const [k, v] = await executarUm(nome);
-          resultados[k] = v;
-        } else {
-          // Executar grupo em paralelo
-          const pairs = await Promise.all(grupo.map((nome) => executarUm(nome)));
-          for (const [k, v] of pairs) {
-            resultados[k] = v;
-          }
-        }
-      }
-
-      return resultados;
-    }
-
-    // Fallback: modo clássico
-    const nomes = Array.isArray(plano.agentes_necessarios)
-      ? plano.agentes_necessarios
-      : [];
-
-    if (modo === "sequencial") {
-      for (const nome of nomes) {
-        const [k, v] = await executarUm(nome);
-        resultados[k] = v;
+        console.log(`📋 Ordem definida pelo gestor (executando sequencialmente):\n${etapas}\n`);
       }
     } else {
-      const pairs = await Promise.all(nomes.map((nome) => executarUm(nome)));
-      for (const [k, v] of pairs) {
-        resultados[k] = v;
-      }
+      agentesOrdenados = Array.isArray(plano.agentes_necessarios)
+        ? plano.agentes_necessarios
+        : [];
+    }
+
+    // Executar um por um, estritamente sequencial
+    for (const nome of agentesOrdenados) {
+      const [k, v] = await executarUm(nome);
+      resultados[k] = v;
     }
 
     return resultados;
@@ -292,6 +273,56 @@ export default class Orchestrator {
     const caminhoRelatorio = salvarRelatorio(relatorioTexto, nomeArquivo);
     if (logVerbose) {
       console.log(`\nRelatório guardado em: ${caminhoRelatorio}\n`);
+    }
+
+    // Salvar relatório de aprendizado na pasta do cliente (se identificado)
+    const clienteNome = plano.cliente;
+    if (clienteNome) {
+      try {
+        const clientDir = path.join(process.cwd(), "clients", clienteNome);
+        if (!fs.existsSync(clientDir)) {
+          fs.mkdirSync(clientDir, { recursive: true });
+        }
+
+        const agora = new Date();
+        const timestamp = agora.toISOString().slice(0, 16).replace("T", " ");
+        const dataArquivo = agora.toISOString().slice(0, 10);
+
+        // Atualizar historico.md do cliente
+        const historicoPath = path.join(clientDir, "historico.md");
+        const qaResult = resultados["qa"] ?? "N/A";
+        const qaStatus = typeof qaResult === "string" && qaResult.includes("APROVADO") ? "APROVADO" : "PENDENTE REVISÃO";
+
+        const entrada =
+          `\n## ${timestamp} — ${tarefa.slice(0, 80)}\n\n` +
+          `- **Data:** ${dataArquivo}\n` +
+          `- **Tarefa:** ${tarefa}\n` +
+          `- **Status QA:** ${qaStatus}\n` +
+          `- **Agentes:** ${plano.agentes_necessarios.join(", ")}\n` +
+          `- **Duração:** ${(duracaoMs / 1000).toFixed(1)}s\n`;
+
+        const aprendizado = plano.relatorio_aprendizado;
+        const entradaAprendizado = aprendizado
+          ? `- **Dificuldades:** ${aprendizado["dificuldades"] ?? "N/A"}\n` +
+            `- **Decisões técnicas:** ${aprendizado["decisoes_tecnicas"] ?? "N/A"}\n`
+          : "";
+
+        if (fs.existsSync(historicoPath)) {
+          fs.appendFileSync(historicoPath, entrada + entradaAprendizado);
+        } else {
+          fs.writeFileSync(
+            historicoPath,
+            `# Histórico de Tarefas — ${clienteNome}\n` + entrada + entradaAprendizado
+          );
+        }
+
+        if (logVerbose) {
+          console.log(`📁 Memória do cliente "${clienteNome}" atualizada em: ${historicoPath}`);
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`⚠️ Falha ao salvar memória do cliente: ${msg}`);
+      }
     }
 
     return {

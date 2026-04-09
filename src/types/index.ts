@@ -37,6 +37,9 @@ export interface TaskPlan {
   dependencias: string | null;
   riscos: string | null;
   criterios_aceitacao?: string;
+  cliente?: string;
+  diretorio_trabalho?: string;
+  relatorio_aprendizado?: Record<string, string>;
 }
 
 // ── Esclarecimento do Manager ───────────────────────────────

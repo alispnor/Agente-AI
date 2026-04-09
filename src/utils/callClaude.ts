@@ -6,10 +6,6 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function shouldRetryHttp(status: number): boolean {
-  return status === 529 || status === 500;
-}
-
 export default async function callClaude(
   systemPrompt: string,
   userMessage: string,
@@ -25,10 +21,9 @@ export default async function callClaude(
     { role: "user", content: userMessage },
   ];
 
-  const RETRIES = 3;
-  const BACKOFF = [1000, 2000, 4000] as const;
+  const MAX_RETRIES = 5;
 
-  for (let attempt = 0; attempt < RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const t0 = Date.now();
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -58,32 +53,53 @@ export default async function callClaude(
         return text;
       }
 
-      const errText = await res.text();
-      if (shouldRetryHttp(res.status) && attempt < RETRIES - 1) {
-        const wait = BACKOFF[attempt] ?? 4000;
+      // ── Rate Limit (429) — Exponential Backoff ──
+      if (res.status === 429) {
+        if (attempt >= MAX_RETRIES) {
+          const errText = await res.text();
+          throw new Error(`Rate limit excedido após ${MAX_RETRIES} tentativas: ${errText}`);
+        }
+        const retryAfterHeader = res.headers.get("retry-after");
+        const retryAfterMs = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : 0;
+        const exponentialMs = 5000 * Math.pow(2, attempt); // 5s, 10s, 20s, 40s, 80s
+        const wait = Math.max(retryAfterMs, exponentialMs);
         console.warn(
-          `[callClaude] retry ${attempt + 1}/${RETRIES} após ${wait} ms (${res.status})`
+          `⏳ [callClaude] RATE LIMIT (429) — tentativa ${attempt + 1}/${MAX_RETRIES}. ` +
+          `Sistema pausado por ${(wait / 1000).toFixed(0)}s aguardando liberação...`
         );
         await sleep(wait);
         continue;
       }
 
+      // ── Erros retentáveis (529 overloaded, 500 server error) ──
+      if ((res.status === 529 || res.status === 500) && attempt < MAX_RETRIES) {
+        const wait = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s, 16s, 32s
+        console.warn(
+          `[callClaude] retry ${attempt + 1}/${MAX_RETRIES} após ${(wait / 1000).toFixed(0)}s (HTTP ${res.status})`
+        );
+        await sleep(wait);
+        continue;
+      }
+
+      // ── Erro não retentável ──
+      const errText = await res.text();
       throw new Error(
         `Erro na API Anthropic (${res.status} ${res.statusText}): ${errText}`
       );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("Erro na API Anthropic")) {
+      // Propagar erros da API diretamente
+      if (msg.includes("Erro na API Anthropic") || msg.includes("Rate limit excedido")) {
         throw e instanceof Error ? e : new Error(msg);
       }
       if (e instanceof SyntaxError) {
         throw e;
       }
-      if (attempt < RETRIES - 1) {
-        const wait = BACKOFF[attempt] ?? 4000;
+      // Erros de rede — retry com backoff
+      if (attempt < MAX_RETRIES) {
+        const wait = 3000 * Math.pow(2, attempt);
         console.warn(
-          `[callClaude] retry ${attempt + 1}/${RETRIES} após ${wait} ms:`,
-          msg
+          `[callClaude] erro de rede, retry ${attempt + 1}/${MAX_RETRIES} após ${(wait / 1000).toFixed(0)}s: ${msg}`
         );
         await sleep(wait);
         continue;
@@ -92,5 +108,5 @@ export default async function callClaude(
     }
   }
 
-  throw new Error("callClaude: falha após retentativas");
+  throw new Error("callClaude: falha após todas as retentativas");
 }

@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   agents-ai:
     build: .
@@ -14,6 +12,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./reports:/app/reports
+      - ./clients:/app/clients
       - ${PROJECT_PATH:-/tmp}:/mnt/projects:ro
     restart: unless-stopped
     healthcheck:
