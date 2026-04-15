@@ -4,7 +4,23 @@ import type { AgentName, ProjectContext } from "../types/index.js";
 
 export const AGENT_EXTENSIONS: Record<AgentName, readonly string[]> = {
   frontend: [".tsx", ".ts", ".jsx", ".js", ".css", ".scss", ".html", ".json"],
-  backend: [".ts", ".js", ".py", ".go", ".java", ".sql", ".prisma", ".json"],
+  backend: [
+    ".ts",
+    ".js",
+    ".py",
+    ".go",
+    ".java",
+    ".sql",
+    ".prisma",
+    ".json",
+    ".toml",
+    ".cfg",
+    ".ini",
+    ".env.example",
+    "requirements.txt",
+    "Pipfile",
+    "pyproject.toml",
+  ],
   qa: [".test.ts", ".test.js", ".spec.ts", ".spec.js", ".cy.js", ".cy.ts"],
   devops: [
     "Dockerfile",
@@ -96,7 +112,14 @@ export const IGNORED_DIRS = new Set([
   ".cache",
   "__pycache__",
   "venv",
+  ".venv",
+  "env",
   ".env",
+  ".pytest_cache",
+  "site-packages",
+  "migrations",
+  "staticfiles",
+  ".mypy_cache",
   ".turbo",
   ".vercel",
   ".nx",
@@ -234,25 +257,49 @@ export function lerArquivosRelevantes(
   return partes.join("\n\n");
 }
 
-export function lerPackageJson(caminhoRaiz: string): string {
-  const root = path.resolve(caminhoRaiz);
-  const candidates = [
-    "package.json",
-    "pyproject.toml",
-    "requirements.txt",
-    "go.mod",
-  ] as const;
-  for (const name of candidates) {
-    const p = path.join(root, name);
-    if (fs.existsSync(p)) {
+function lerPackageJsonFile(filePath: string): string {
+  return fs.readFileSync(filePath, "utf8").slice(0, 3000);
+}
+
+function lerPyprojectToml(filePath: string): string {
+  return fs.readFileSync(filePath, "utf8").slice(0, 3000);
+}
+
+function lerRequirements(filePath: string): string {
+  return fs.readFileSync(filePath, "utf8").slice(0, 2000);
+}
+
+function lerArquivoTexto(filePath: string): string {
+  return fs.readFileSync(filePath, "utf8").slice(0, 2000);
+}
+
+export function lerDependenciasProjeto(caminhoRaiz: string): string {
+  const candidates: {
+    file: string;
+    parser: (p: string) => string;
+  }[] = [
+    { file: "package.json", parser: lerPackageJsonFile },
+    { file: "pyproject.toml", parser: lerPyprojectToml },
+    { file: "requirements.txt", parser: lerRequirements },
+    { file: "Pipfile", parser: lerArquivoTexto },
+    { file: "go.mod", parser: lerArquivoTexto },
+    { file: "composer.json", parser: lerArquivoTexto },
+    { file: "pubspec.yaml", parser: lerArquivoTexto },
+    { file: "pom.xml", parser: lerArquivoTexto },
+    { file: "build.gradle", parser: lerArquivoTexto },
+  ];
+
+  for (const { file, parser } of candidates) {
+    const fullPath = path.join(caminhoRaiz, file);
+    if (fs.existsSync(fullPath)) {
       try {
-        return fs.readFileSync(p, "utf8");
+        return `=== ${file} ===\n${parser(fullPath)}`;
       } catch {
-        return "Não encontrado";
+        continue;
       }
     }
   }
-  return "Não encontrado";
+  return "Arquivo de dependências não encontrado";
 }
 
 export function gerarContextoProjeto(
@@ -268,7 +315,7 @@ export function gerarContextoProjeto(
   return {
     caminho: resolved,
     estrutura: lerEstruturaProjeto(resolved),
-    dependencias: lerPackageJson(resolved),
+    dependencias: lerDependenciasProjeto(resolved),
     arquivosRelevantes: lerArquivosRelevantes(resolved, agente),
   };
 }

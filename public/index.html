@@ -110,8 +110,31 @@
     .modal-overlay.show { display: flex; animation: fadeIn 0.2s ease; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .modal {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; max-width: 480px; width: 100%; padding: 1rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; max-width: 520px; width: 100%; padding: 1rem;
+      position: relative;
     }
+    .path-input-wrap { position: relative; display: flex; align-items: center; gap: 0.35rem; }
+    .path-input-wrap input { flex: 1; padding-right: 2rem; }
+    .path-input-wrap .path-icon { position: absolute; right: 0.65rem; opacity: 0.6; pointer-events: none; }
+    .path-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+    .path-feedback { margin-top: 0.5rem; font-size: 0.88rem; line-height: 1.4; }
+    .path-feedback.ok { color: var(--success); }
+    .path-feedback.bad { color: var(--danger); }
+    .path-popover {
+      display: none; position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; z-index: 60;
+      background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; max-height: 240px; overflow: auto;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+    .path-popover.show { display: block; }
+    .path-popover .browse-row { display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0.25rem; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 4px; }
+    .path-popover .browse-row:hover { background: #21262d; }
+    .path-popover .browse-back { cursor: pointer; color: var(--accent); margin-bottom: 0.35rem; font-size: 0.9rem; }
+    .toast {
+      position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%) translateY(120%);
+      background: #21262d; border: 1px solid var(--border); padding: 0.65rem 1rem; border-radius: 8px; z-index: 100;
+      transition: transform 0.25s ease; max-width: min(90vw, 420px); font-size: 0.9rem;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
     .modal h2 { margin: 0 0 1rem; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center; }
     .field-error { border-color: var(--danger) !important; }
     .err-msg { color: var(--danger); font-size: 0.8rem; margin-top: 0.25rem; }
@@ -240,7 +263,16 @@
     <div class="modal">
       <h2>Cadastrar Projeto <button type="button" class="btn-ghost" id="modalClose" style="padding:0.25rem 0.5rem;">×</button></h2>
       <label for="addPath">Caminho do projeto</label>
-      <input id="addPath" placeholder="/home/user/meu-projeto" />
+      <div class="path-input-wrap" id="pathFieldWrap">
+        <input id="addPath" placeholder="/home/user/meu-projeto" autocomplete="off" />
+        <span class="path-icon" aria-hidden="true">📁</span>
+        <div class="path-popover" id="pathPopover" role="listbox"></div>
+      </div>
+      <div class="path-actions">
+        <button type="button" class="btn-ghost" id="btnBrowseFolders">📂 Navegar pastas</button>
+        <button type="button" class="btn-ghost" id="btnValidatePath">✓ Validar path</button>
+      </div>
+      <div class="path-feedback" id="pathValidateMsg" aria-live="polite"></div>
       <div class="err-msg" id="errPath"></div>
       <label for="addName" style="margin-top:0.75rem;">Nome</label>
       <input id="addName" placeholder="Meu Projeto" />
@@ -249,10 +281,12 @@
       <input id="addDesc" placeholder="App em React + Node" />
       <div class="row" style="margin-top:1rem;justify-content:flex-end;">
         <button type="button" class="btn-ghost" id="addCancel">Cancelar</button>
-        <button type="button" class="btn-primary" id="addSubmit">Cadastrar ✓</button>
+        <button type="button" class="btn-primary" id="addSubmit" disabled>Cadastrar ✓</button>
       </div>
     </div>
   </div>
+
+  <div class="toast" id="toast" role="status"></div>
 
   <script>
     const API = "";
@@ -264,7 +298,59 @@
       selectedProject: null,
       lastRun: null,
       healthOk: false,
+      pathValidated: false,
+      lastFrameworks: [],
     };
+
+    function showToast(message) {
+      const t = document.getElementById("toast");
+      t.textContent = message;
+      t.classList.add("show");
+      clearTimeout(showToast._tid);
+      showToast._tid = setTimeout(() => t.classList.remove("show"), 4500);
+    }
+
+    function resetPathValidation() {
+      state.pathValidated = false;
+      state.lastFrameworks = [];
+      document.getElementById("pathValidateMsg").textContent = "";
+      document.getElementById("pathValidateMsg").className = "path-feedback";
+      document.getElementById("addSubmit").disabled = true;
+    }
+
+    async function loadBrowsePopover(targetPath) {
+      const pop = document.getElementById("pathPopover");
+      const q = targetPath ? "?path=" + encodeURIComponent(targetPath) : "";
+      const data = await api("/api/projects/browse" + q);
+      let html = "";
+      if (data.parent) {
+        html += "<div class=\"browse-back\" data-parent=\"" + escapeHtml(data.parent) + "\">⬆ Voltar</div>";
+      }
+      data.dirs.forEach((d) => {
+        html += "<div class=\"browse-row\" data-path=\"" + escapeHtml(d.caminho) + "\"><span>📁 " + escapeHtml(d.nome) + "</span></div>";
+      });
+      if (!html) html = "<p class=\"proj-meta\" style=\"margin:0.35rem;\">Nenhuma subpasta.</p>";
+      html += "<div style=\"margin-top:0.5rem;display:flex;justify-content:flex-end;\"><button type=\"button\" class=\"btn-primary\" id=\"btnSelectFolder\" style=\"font-size:0.85rem;padding:0.35rem 0.65rem;\">✓ Selecionar esta pasta</button></div>";
+      pop.innerHTML = html;
+      pop.querySelectorAll(".browse-back").forEach((el) => {
+        el.addEventListener("click", () => loadBrowsePopover(el.dataset.parent));
+      });
+      pop.querySelectorAll(".browse-row").forEach((el) => {
+        el.addEventListener("click", () => {
+          document.getElementById("addPath").value = el.dataset.path;
+          resetPathValidation();
+          loadBrowsePopover(el.dataset.path);
+        });
+      });
+      const selBtn = pop.querySelector("#btnSelectFolder");
+      if (selBtn) {
+        selBtn.addEventListener("click", () => {
+          document.getElementById("addPath").value = data.current;
+          pop.classList.remove("show");
+          resetPathValidation();
+        });
+      }
+    }
 
     function api(path, method = "GET", body) {
       const opts = { method, headers: {} };
@@ -506,8 +592,63 @@
       }
     }
 
-    const AGENT_LABELS = ["frontend", "backend", "qa", "devops", "uxui", "mobile"];
-    let runTimerId, runAnimId;
+    let runTimerId;
+    let activeEventSource = null;
+
+    function renderResultFromRun(out) {
+      state.lastRun = out;
+      document.getElementById("finalMd").innerHTML = renderMarkdown(out.respostaFinal || "");
+      const tabs = document.getElementById("agentTabs");
+      const panels = document.getElementById("agentTabPanels");
+      tabs.innerHTML = "";
+      panels.innerHTML = "";
+      const label = { frontend: "Frontend", backend: "Backend", qa: "QA", devops: "DevOps", uxui: "UX/UI", mobile: "Mobile", security: "Security", data: "Data", architect: "Architect" };
+      const resMap = out.resultados || {};
+      const keys = Object.keys(resMap);
+      if (keys.length === 0) {
+        const p = document.createElement("p");
+        p.className = "proj-meta";
+        p.textContent = "Nenhuma resposta por agente nesta execução.";
+        panels.appendChild(p);
+      } else {
+        keys.forEach((k, i) => {
+          const tb = document.createElement("button");
+          tb.type = "button";
+          tb.className = "tab" + (i === 0 ? " active" : "");
+          tb.dataset.tab = k;
+          tb.textContent = label[k] || k;
+          if (k === "mobile") tb.title = "React Native, Flutter, iOS, Android";
+          tabs.appendChild(tb);
+          const pan = document.createElement("div");
+          pan.className = "tab-panel" + (i === 0 ? " active" : "");
+          pan.dataset.panel = k;
+          pan.innerHTML = "<div class=\"md-content\">" + renderMarkdown(resMap[k] || "") + "</div>";
+          panels.appendChild(pan);
+        });
+        tabs.querySelectorAll(".tab").forEach((t) => {
+          t.addEventListener("click", () => {
+            tabs.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+            panels.querySelectorAll(".tab-panel").forEach((x) => x.classList.remove("active"));
+            t.classList.add("active");
+            panels.querySelector("[data-panel=\"" + t.dataset.tab + "\"]").classList.add("active");
+          });
+        });
+      }
+      document.getElementById("resultPanel").classList.add("show");
+      document.getElementById("btnDownload").onclick = () => {
+        const n = out.relatorioNome;
+        if (!n) return;
+        fetch(API + "/api/reports/file?name=" + encodeURIComponent(n))
+          .then((r) => r.blob())
+          .then((blob) => {
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = n;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          });
+      };
+    }
 
     async function executarTarefa() {
       const txt = document.getElementById("taskText").value.trim();
@@ -523,20 +664,7 @@
       document.getElementById("btnRun").disabled = true;
 
       const agentLog = document.getElementById("agentLog");
-      agentLog.innerHTML = "";
-      let step = 0;
-      const phases = ["Gestor (plano)", ...AGENT_LABELS.map((a) => (a === "mobile" ? "📱 " : "") + "Agente " + a), "Consolidação"];
-      phases.forEach((ph, i) => {
-        const d = document.createElement("div");
-        d.className = "agent-row";
-        d.dataset.phase = String(i);
-        const phSpan =
-          ph.indexOf("Agente mobile") !== -1
-            ? "<span title=\"React Native, Flutter, iOS, Android\">" + ph + "</span>"
-            : "<span>" + ph + "</span>";
-        d.innerHTML = "<span>⏳</span>" + phSpan + "<span class=\"proj-meta\"></span>";
-        agentLog.appendChild(d);
-      });
+      agentLog.innerHTML = "<div class=\"agent-row\" id=\"planRow\"><span class=\"ag-ico\">⏳</span><span>Planejamento (gestor)…</span><span class=\"proj-meta\"></span></div>";
 
       let sec = 0;
       document.getElementById("elapsed").textContent = "0s";
@@ -545,83 +673,115 @@
         document.getElementById("elapsed").textContent = sec + "s";
       }, 1000);
 
-      runAnimId = setInterval(() => {
-        const rows = agentLog.querySelectorAll(".agent-row");
-        rows.forEach((r, i) => {
-          const sp = r.querySelector("span");
-          if (i < step) { sp.textContent = "✅"; r.style.opacity = "1"; }
-          else if (i === step) { sp.textContent = "🔄"; r.style.animation = "pulse 1s infinite"; }
-          else { sp.textContent = "⏳"; r.style.opacity = "0.6"; }
-        });
-        step = (step + 1) % rows.length;
-      }, 900);
+      const params = new URLSearchParams();
+      params.set("tarefa", txt);
+      params.set("modo", modo);
+      if (pid) params.set("projetoId", pid);
 
-      try {
-        const body = { tarefa: txt, modo };
-        if (pid) body.projetoId = pid;
-        const out = await api("/api/run", "POST", body);
-        state.lastRun = out;
-        document.getElementById("finalMd").innerHTML = renderMarkdown(out.respostaFinal || "");
-        const tabs = document.getElementById("agentTabs");
-        const panels = document.getElementById("agentTabPanels");
-        tabs.innerHTML = "";
-        panels.innerHTML = "";
-        const label = { frontend: "Frontend", backend: "Backend", qa: "QA", devops: "DevOps", uxui: "UX/UI", mobile: "Mobile" };
-        const resMap = out.resultados || {};
-        const keys = Object.keys(resMap);
-        if (keys.length === 0) {
-          const p = document.createElement("p");
-          p.className = "proj-meta";
-          p.textContent = "Nenhuma resposta por agente nesta execução.";
-          panels.appendChild(p);
-        } else {
-          keys.forEach((k, i) => {
-            const tb = document.createElement("button");
-            tb.type = "button";
-            tb.className = "tab" + (i === 0 ? " active" : "");
-            tb.dataset.tab = k;
-            tb.textContent = label[k] || k;
-            if (k === "mobile") tb.title = "React Native, Flutter, iOS, Android";
-            tabs.appendChild(tb);
-            const pan = document.createElement("div");
-            pan.className = "tab-panel" + (i === 0 ? " active" : "");
-            pan.dataset.panel = k;
-            pan.innerHTML = "<div class=\"md-content\">" + renderMarkdown(resMap[k] || "") + "</div>";
-            panels.appendChild(pan);
-          });
-          tabs.querySelectorAll(".tab").forEach((t) => {
-            t.addEventListener("click", () => {
-              tabs.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-              panels.querySelectorAll(".tab-panel").forEach((x) => x.classList.remove("active"));
-              t.classList.add("active");
-              panels.querySelector("[data-panel=\"" + t.dataset.tab + "\"]").classList.add("active");
-            });
-          });
-        }
-        document.getElementById("resultPanel").classList.add("show");
-        document.getElementById("btnDownload").onclick = () => {
-          const n = out.relatorioNome;
-          if (!n) return;
-          fetch(API + "/api/reports/file?name=" + encodeURIComponent(n))
-            .then((r) => r.blob())
-            .then((blob) => {
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = n;
-              a.click();
-              URL.revokeObjectURL(a.href);
-            });
-        };
-        await loadProjects();
-        await loadHistory();
-      } catch (e) {
-        alert(e.message || String(e));
-      } finally {
+      if (activeEventSource) {
+        activeEventSource.close();
+        activeEventSource = null;
+      }
+
+      const es = new EventSource(API + "/api/run/stream?" + params.toString());
+      activeEventSource = es;
+
+      const agentRows = {};
+      let streamFinished = false;
+
+      function finishUi() {
+        streamFinished = true;
         clearInterval(runTimerId);
-        clearInterval(runAnimId);
         document.getElementById("progressPanel").classList.remove("show");
         document.getElementById("btnRun").disabled = false;
       }
+
+      function ensureAgentRow(nome) {
+        const plan = document.getElementById("planRow");
+        if (plan) {
+          const ico = plan.querySelector(".ag-ico");
+          if (ico) ico.textContent = "✅";
+          plan.querySelector("span:nth-child(2)").textContent = "Planejamento (gestor)";
+          plan.id = "";
+        }
+        if (agentRows[nome]) return agentRows[nome];
+        const d = document.createElement("div");
+        d.className = "agent-row";
+        d.dataset.agent = nome;
+        d.innerHTML = "<span class=\"ag-ico\">🔄</span><span>Agente " + escapeHtml(nome) + "</span><span class=\"proj-meta\"></span>";
+        agentLog.appendChild(d);
+        agentRows[nome] = d;
+        return d;
+      }
+
+      es.addEventListener("agent_start", (e) => {
+        const { nome, modelo } = JSON.parse(e.data);
+        const row = ensureAgentRow(nome);
+        const ico = row.querySelector(".ag-ico");
+        if (ico) ico.textContent = "🔄";
+        row.querySelector(".proj-meta").textContent = modelo || "";
+      });
+
+      es.addEventListener("agent_done", (e) => {
+        const { nome, durationMs } = JSON.parse(e.data);
+        const row = ensureAgentRow(nome);
+        const ico = row.querySelector(".ag-ico");
+        if (ico) ico.textContent = "✅";
+        row.querySelector(".proj-meta").textContent = (durationMs / 1000).toFixed(1) + "s";
+      });
+
+      es.addEventListener("agent_error", (e) => {
+        const { nome, error } = JSON.parse(e.data);
+        const row = ensureAgentRow(nome);
+        const ico = row.querySelector(".ag-ico");
+        if (ico) ico.textContent = "❌";
+        row.querySelector(".proj-meta").textContent = (error || "").slice(0, 120);
+      });
+
+      es.addEventListener("done", (e) => {
+        const out = JSON.parse(e.data);
+        es.close();
+        activeEventSource = null;
+        const plan = document.getElementById("planRow");
+        if (plan) {
+          const ico = plan.querySelector(".ag-ico");
+          if (ico) ico.textContent = "✅";
+          plan.querySelector("span:nth-child(2)").textContent = "Planejamento (gestor)";
+        }
+        const cons = document.createElement("div");
+        cons.className = "agent-row";
+        cons.innerHTML = "<span class=\"ag-ico\">✅</span><span>Consolidação</span><span class=\"proj-meta\"></span>";
+        agentLog.appendChild(cons);
+        renderResultFromRun(out);
+        loadProjects();
+        loadHistory();
+        finishUi();
+      });
+
+      es.addEventListener("stream_error", (e) => {
+        let msg = "Erro na execução";
+        try {
+          msg = JSON.parse(e.data).error || msg;
+        } catch { /* ignore */ }
+        alert(msg);
+        es.close();
+        activeEventSource = null;
+        finishUi();
+      });
+
+      es.onerror = () => {
+        if (streamFinished) return;
+        if (es.readyState === EventSource.CLOSED) {
+          if (!streamFinished) {
+            finishUi();
+          }
+          return;
+        }
+        es.close();
+        activeEventSource = null;
+        alert("Conexão perdida com o servidor");
+        finishUi();
+      };
     }
 
     function resetTaskForm() {
@@ -644,10 +804,13 @@
       document.getElementById("histFilter").addEventListener("change", renderHistory);
 
       document.getElementById("btnOpenAdd").addEventListener("click", () => {
+        resetPathValidation();
+        document.getElementById("pathPopover").classList.remove("show");
         document.getElementById("modalAdd").classList.add("show");
       });
       function closeModal() {
         document.getElementById("modalAdd").classList.remove("show");
+        document.getElementById("pathPopover").classList.remove("show");
         ["addPath", "addName", "addDesc"].forEach((id) => {
           document.getElementById(id).classList.remove("field-error");
         });
@@ -655,6 +818,69 @@
       }
       document.getElementById("modalClose").addEventListener("click", closeModal);
       document.getElementById("addCancel").addEventListener("click", closeModal);
+      document.getElementById("addPath").addEventListener("input", () => {
+        resetPathValidation();
+      });
+      document.getElementById("btnBrowseFolders").addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const pop = document.getElementById("pathPopover");
+        const open = pop.classList.toggle("show");
+        if (open) {
+          const cur = document.getElementById("addPath").value.trim();
+          try {
+            await loadBrowsePopover(cur || undefined);
+          } catch (err) {
+            pop.classList.remove("show");
+            alert(err.message || String(err));
+          }
+        }
+      });
+      document.getElementById("btnValidatePath").addEventListener("click", async () => {
+        const pathVal = document.getElementById("addPath").value.trim();
+        const msgEl = document.getElementById("pathValidateMsg");
+        msgEl.className = "path-feedback";
+        msgEl.textContent = "";
+        if (!pathVal) {
+          msgEl.classList.add("bad");
+          msgEl.textContent = "Informe um caminho.";
+          return;
+        }
+        try {
+          const v = await api("/api/projects/validate", "POST", { caminho: pathVal });
+          if (!v.exists) {
+            state.pathValidated = false;
+            document.getElementById("addSubmit").disabled = true;
+            msgEl.classList.add("bad");
+            msgEl.textContent = "❌ Caminho não encontrado no servidor." + (v.suggestion ? " Sugestão: " + v.suggestion : "");
+            return;
+          }
+          if (!v.isDirectory) {
+            state.pathValidated = false;
+            document.getElementById("addSubmit").disabled = true;
+            msgEl.classList.add("bad");
+            msgEl.textContent = "❌ O caminho existe mas não é uma pasta.";
+            return;
+          }
+          if (!v.readable) {
+            state.pathValidated = false;
+            document.getElementById("addSubmit").disabled = true;
+            msgEl.classList.add("bad");
+            msgEl.textContent = "❌ Sem permissão de leitura nesta pasta.";
+            return;
+          }
+          state.pathValidated = true;
+          state.lastFrameworks = v.frameworks || [];
+          document.getElementById("addSubmit").disabled = false;
+          msgEl.classList.add("ok");
+          const fw = (v.frameworks && v.frameworks.length) ? v.frameworks.join(" + ") : "stack " + (v.stack || "—");
+          msgEl.textContent = "✅ Detectado: " + fw + " — " + v.files + " ficheiros no nível raiz | " + (v.stack || "—");
+        } catch (err) {
+          state.pathValidated = false;
+          document.getElementById("addSubmit").disabled = true;
+          msgEl.classList.add("bad");
+          msgEl.textContent = "❌ " + (err.message || String(err));
+        }
+      });
       document.getElementById("addSubmit").addEventListener("click", async () => {
         const pathVal = document.getElementById("addPath").value.trim();
         const nameVal = document.getElementById("addName").value.trim();
@@ -671,7 +897,15 @@
           ok = false;
         } else document.getElementById("errName").textContent = "";
         if (!ok) return;
+        if (!state.pathValidated) {
+          alert("Valide o caminho com o botão \"Validar path\" antes de cadastrar.");
+          return;
+        }
         await api("/api/projects", "POST", { caminho: pathVal, nome: nameVal, descricao: descVal });
+        const fws = (state.lastFrameworks && state.lastFrameworks.length)
+          ? state.lastFrameworks.join(", ")
+          : "—";
+        showToast("Projeto '" + nameVal + "' cadastrado! Stack detectada: " + fws);
         closeModal();
         await loadProjects();
         renderProjects();

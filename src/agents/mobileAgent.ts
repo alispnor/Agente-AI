@@ -1,4 +1,7 @@
 import callClaude from '../utils/callClaude.js';
+import { getModelConfig } from '../config/models.js';
+
+const MODEL_CONFIG = getModelConfig('mobile');
 
 export default async function mobileAgent(
   tarefa: string,
@@ -8,7 +11,7 @@ export default async function mobileAgent(
     ? `CÓDIGO EXISTENTE DO PROJETO (para análise e modificação):\n${contextoArquivos}\n\nTAREFA:\n${tarefa}`
     : tarefa;
 
-  return callClaude(MOBILE_SYSTEM_PROMPT, contexto);
+  return callClaude(MOBILE_SYSTEM_PROMPT, contexto, [], MODEL_CONFIG);
 }
 
 const MOBILE_SYSTEM_PROMPT = `# Sua Identidade e Papel

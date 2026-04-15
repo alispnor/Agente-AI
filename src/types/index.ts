@@ -86,6 +86,9 @@ export interface OrchestratorOptions {
   salvarHistorico?: boolean;
   perguntarUsuario?: AskUserFn;
   maxEsclarecimentos?: number;
+  onAgentStart?: (nome: string, modelo: string) => void;
+  onAgentDone?: (nome: string, durationMs: number) => void;
+  onAgentError?: (nome: string, error: string) => void;
 }
 
 export interface OrchestratorResult {
@@ -133,6 +136,12 @@ export interface AnthropicRequestBody {
   messages: AnthropicMessage[];
 }
 
+export interface AnthropicContentBlock {
+  type: string;
+  text?: string;
+  thinking?: string;
+}
+
 export interface AnthropicResponse {
-  content: Array<{ type: string; text: string }>;
+  content: AnthropicContentBlock[];
 }

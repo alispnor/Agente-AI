@@ -1,4 +1,7 @@
 import callClaude from "../utils/callClaude.js";
+import { getModelConfig } from "../config/models.js";
+
+const MODEL_CONFIG = getModelConfig("devops");
 
 const SYSTEM_PROMPT = `# Sua Identidade e Papel
 Você é um Engenheiro DevOps / SRE Sênior com 16+ anos de experiência em infraestrutura, automação, CI/CD e operações de alta disponibilidade.
@@ -121,5 +124,5 @@ export default async function devopsAgent(
       ? `CÓDIGO EXISTENTE DO PROJETO (para análise e modificação):\n${contextoArquivos}\n\nTAREFA:\n${tarefa}`
       : tarefa;
 
-  return callClaude(SYSTEM_PROMPT, userMessage, []);
+  return callClaude(SYSTEM_PROMPT, userMessage, [], MODEL_CONFIG);
 }

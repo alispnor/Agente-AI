@@ -1,4 +1,7 @@
 import callClaude from "../utils/callClaude.js";
+import { getModelConfig } from "../config/models.js";
+
+const MODEL_CONFIG = getModelConfig("backend");
 
 const SYSTEM_PROMPT = `# Sua Identidade e Papel
 Você é um Engenheiro Backend Sênior com 14+ anos de experiência.
@@ -161,5 +164,5 @@ export default async function backendAgent(
       ? `CÓDIGO EXISTENTE DO PROJETO (para análise e modificação):\n${contextoArquivos}\n\nTAREFA:\n${tarefa}`
       : tarefa;
 
-  return callClaude(SYSTEM_PROMPT, userMessage, []);
+  return callClaude(SYSTEM_PROMPT, userMessage, [], MODEL_CONFIG);
 }

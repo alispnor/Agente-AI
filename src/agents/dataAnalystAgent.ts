@@ -1,4 +1,7 @@
 import callClaude from "../utils/callClaude.js";
+import { getModelConfig } from "../config/models.js";
+
+const MODEL_CONFIG = getModelConfig("data");
 
 const SYSTEM_PROMPT = `# Sua Identidade e Papel
 Você é um Analista de Dados Especialista / Gerente de Dados com 18+ anos de experiência
@@ -206,5 +209,5 @@ export default async function dataAnalystAgent(
       ? `CÓDIGO/SCHEMA EXISTENTE DO PROJETO (para análise de dados):\n${contextoArquivos}\n\nTAREFA:\n${tarefa}`
       : tarefa;
 
-  return callClaude(SYSTEM_PROMPT, userMessage, []);
+  return callClaude(SYSTEM_PROMPT, userMessage, [], MODEL_CONFIG);
 }

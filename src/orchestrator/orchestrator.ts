@@ -20,6 +20,7 @@ import {
   gerarNomeRelatorio,
   salvarRelatorio,
 } from "../history/reportGenerator.js";
+import { getModelConfig } from "../config/models.js";
 import type {
   AgentName,
   AgentResults,
@@ -30,11 +31,78 @@ import type {
   TaskPlan,
 } from "../types/index.js";
 
-function ts(): string {
-  return new Date().toISOString();
+type AgenteFn = (tarefa: string, ctx?: string) => Promise<string>;
+
+class Semaphore {
+  private queue: Array<() => void> = [];
+  private running = 0;
+
+  constructor(private limit: number) {}
+
+  async acquire(): Promise<void> {
+    if (this.running < this.limit) {
+      this.running++;
+      return;
+    }
+    return new Promise((resolve) => this.queue.push(resolve));
+  }
+
+  release(): void {
+    this.running--;
+    const next = this.queue.shift();
+    if (next) {
+      this.running++;
+      next();
+    }
+  }
 }
 
-type AgenteFn = (tarefa: string, ctx?: string) => Promise<string>;
+const semaphore = new Semaphore(3);
+
+type RunOutcome = {
+  name: string;
+  result: string | null;
+  error: string | null;
+  durationMs: number;
+};
+
+async function runAgentSafe(
+  name: string,
+  fn: () => Promise<string>,
+  progress: {
+    onAgentStart?: (nome: string, modelo: string) => void;
+    onAgentDone?: (nome: string, durationMs: number) => void;
+    onAgentError?: (nome: string, error: string) => void;
+  },
+  timeout = 120_000
+): Promise<RunOutcome> {
+  await semaphore.acquire();
+  const t0 = Date.now();
+  const modelo = getModelConfig(name).model;
+  try {
+    progress.onAgentStart?.(name, modelo);
+    const result = await Promise.race([
+      fn(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(new Error(`Agente ${name} timeout após ${timeout}ms`)),
+          timeout
+        )
+      ),
+    ]);
+    const durationMs = Date.now() - t0;
+    progress.onAgentDone?.(name, durationMs);
+    return { name, result, error: null, durationMs };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`  ❌ [${name.toUpperCase()}] erro: ${msg}`);
+    progress.onAgentError?.(name, msg);
+    return { name, result: null, error: msg, durationMs: Date.now() - t0 };
+  } finally {
+    semaphore.release();
+  }
+}
 
 export default class Orchestrator {
   private readonly agentes: Record<AgentName, AgenteFn>;
@@ -64,14 +132,18 @@ export default class Orchestrator {
 
   /**
    * Executa agentes respeitando a ordem_execucao do plano.
-   * Cada grupo interno roda em paralelo; grupos rodam sequencialmente entre si.
-   * Se ordem_execucao não existir, usa o modo clássico (paralelo ou sequencial).
+   * Em paralelo: até 3 agentes simultâneos (semáforo); grupos em ordem_execucao rodam em sequência.
    */
   private async executarAgentes(
     plano: TaskPlan,
     contextosPorAgente: Partial<Record<AgentName, string>> = {},
     modo: "paralelo" | "sequencial" = "paralelo",
-    logAgentes = true
+    logAgentes = true,
+    progress: {
+      onAgentStart?: (nome: string, modelo: string) => void;
+      onAgentDone?: (nome: string, durationMs: number) => void;
+      onAgentError?: (nome: string, error: string) => void;
+    } = {}
   ): Promise<AgentResults> {
     const subtarefas = plano.subtarefas ?? {};
     const resultados: AgentResults = {};
@@ -83,43 +155,52 @@ export default class Orchestrator {
         : JSON.stringify(plano);
     };
 
-    const executarUm = async (
-      nome: AgentName
-    ): Promise<[AgentName, string]> => {
+    const runOne = (nome: AgentName) => {
       const fn = this.agentes[nome];
       if (!fn) {
         console.warn(`⚠️ Agente desconhecido ou não registado: ${nome}`);
-        return [nome, `[agente ${nome} não disponível]`];
+        return runAgentSafe(
+          nome,
+          async () => `[agente ${nome} não disponível]`,
+          progress
+        );
       }
       const ctx = contextosPorAgente[nome] ?? "";
       const tarefaAgente = tarefaPara(nome);
-      if (logAgentes) {
-        console.log(`🤖 [${ts()}] Iniciando agente: ${nome}`);
-      }
-      const resposta = await fn(tarefaAgente, ctx);
-      if (logAgentes) {
-        console.log(`✅ [${ts()}] Concluído agente: ${nome}`);
-      }
-      return [nome, resposta];
+      return runAgentSafe(
+        nome,
+        () => {
+          if (logAgentes) {
+            console.log(
+              `  🔄 [${nome.toUpperCase()}] iniciando (modelo: ${getModelConfig(nome).model})`
+            );
+          }
+          return fn(tarefaAgente, ctx);
+        },
+        progress
+      );
     };
 
-    // ── MODO SEQUENCIAL ANTI-429 ──
-    // Todos os agentes rodam estritamente um por vez para evitar
-    // estourar o rate limit da API Anthropic (10k TPM).
-    // A ordem_execucao do gestor é respeitada, mas sem paralelismo.
-    console.log(`\n🔒 [ORQUESTRADOR] Rodando em modo sequencial anti-429\n`);
+    const mergeOutcomes = (outcomes: RunOutcome[]): void => {
+      for (const { name, result, error } of outcomes) {
+        if (result !== null) {
+          resultados[name as AgentName] = result;
+        } else {
+          resultados[name as AgentName] = `[ERRO: ${error}]`;
+        }
+      }
+    };
 
-    // Montar lista ordenada de agentes
-    let agentesOrdenados: AgentName[];
-
+    let agentesOrdenados: AgentName[] = [];
     if (plano.ordem_execucao && plano.ordem_execucao.length > 0) {
-      // Achatar os grupos mantendo a ordem definida pelo gestor
       agentesOrdenados = plano.ordem_execucao.flat();
       if (logAgentes) {
         const etapas = plano.ordem_execucao
           .map((g, i) => `  Etapa ${i + 1}: [${g.join(", ")}]`)
           .join("\n");
-        console.log(`📋 Ordem definida pelo gestor (executando sequencialmente):\n${etapas}\n`);
+        console.log(
+          `📋 Ordem definida pelo gestor:\n${etapas}\n`
+        );
       }
     } else {
       agentesOrdenados = Array.isArray(plano.agentes_necessarios)
@@ -127,10 +208,63 @@ export default class Orchestrator {
         : [];
     }
 
-    // Executar um por um, estritamente sequencial
-    for (const nome of agentesOrdenados) {
-      const [k, v] = await executarUm(nome);
-      resultados[k] = v;
+    if (modo === "paralelo") {
+      const n = agentesOrdenados.length;
+      console.log(
+        `\n⚡ ${n} agentes em paralelo (máx 3 simultâneos)\n`
+      );
+
+      if (plano.ordem_execucao && plano.ordem_execucao.length > 0) {
+        for (const grupo of plano.ordem_execucao) {
+          const tarefas = grupo.map((nome) => {
+            if (logAgentes) {
+              console.log(`  🤖 [${nome.toUpperCase()}] enfileirado...`);
+            }
+            return runOne(nome);
+          });
+          const outcomes = await Promise.all(tarefas);
+          for (const { name, durationMs, result, error } of outcomes) {
+            if (logAgentes) {
+              if (result !== null) {
+                console.log(
+                  `  ✅ [${name.toUpperCase()}] concluído em ${(durationMs / 1000).toFixed(1)}s`
+                );
+              }
+            }
+          }
+          mergeOutcomes(outcomes);
+        }
+      } else {
+        const tarefas = agentesOrdenados.map((nome) => {
+          if (logAgentes) {
+            console.log(`  🤖 [${nome.toUpperCase()}] enfileirado...`);
+          }
+          return runOne(nome);
+        });
+        const outcomes = await Promise.all(tarefas);
+        for (const { name, durationMs, result } of outcomes) {
+          if (logAgentes && result !== null) {
+            console.log(
+              `  ✅ [${name.toUpperCase()}] concluído em ${(durationMs / 1000).toFixed(1)}s`
+            );
+          }
+        }
+        mergeOutcomes(outcomes);
+      }
+    } else {
+      for (const nome of agentesOrdenados) {
+        if (logAgentes) {
+          console.log(`  🤖 [${nome.toUpperCase()}] iniciando...`);
+        }
+        const { result, error, durationMs } = await runOne(nome);
+        resultados[nome as AgentName] =
+          result ?? `[ERRO: ${error}]`;
+        if (logAgentes) {
+          console.log(
+            `  ✅ [${nome.toUpperCase()}] ${(durationMs / 1000).toFixed(1)}s`
+          );
+        }
+      }
     }
 
     return resultados;
@@ -147,6 +281,14 @@ export default class Orchestrator {
     const logVerbose = verbose !== false;
     const perguntarUsuario = opcoes.perguntarUsuario;
     const maxEsclarecimentos = opcoes.maxEsclarecimentos ?? 3;
+    const progressCallbacks: {
+      onAgentStart?: (nome: string, modelo: string) => void;
+      onAgentDone?: (nome: string, durationMs: number) => void;
+      onAgentError?: (nome: string, error: string) => void;
+    } = {};
+    if (opcoes.onAgentStart) progressCallbacks.onAgentStart = opcoes.onAgentStart;
+    if (opcoes.onAgentDone) progressCallbacks.onAgentDone = opcoes.onAgentDone;
+    if (opcoes.onAgentError) progressCallbacks.onAgentError = opcoes.onAgentError;
 
     if (logVerbose) {
       console.log("\n" + "=".repeat(72));
@@ -226,7 +368,8 @@ export default class Orchestrator {
       plano,
       contextosPorAgente,
       modo,
-      logVerbose
+      logVerbose,
+      progressCallbacks
     );
     const respostaFinal = await consolidarResultados(
       tarefa,

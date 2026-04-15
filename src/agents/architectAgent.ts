@@ -1,4 +1,7 @@
 import callClaude from "../utils/callClaude.js";
+import { getModelConfig } from "../config/models.js";
+
+const MODEL_CONFIG = getModelConfig("architect");
 
 const SYSTEM_PROMPT = `# Sua Identidade e Papel
 Você é um Arquiteto de Software Sênior com foco em Engenharia de Dados,
@@ -208,5 +211,5 @@ export default async function architectAgent(
       ? `CÓDIGO EXISTENTE DO PROJETO (para análise arquitetural):\n${contextoArquivos}\n\nTAREFA:\n${tarefa}`
       : tarefa;
 
-  return callClaude(SYSTEM_PROMPT, userMessage, []);
+  return callClaude(SYSTEM_PROMPT, userMessage, [], MODEL_CONFIG);
 }

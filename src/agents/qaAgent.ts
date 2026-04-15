@@ -1,4 +1,7 @@
 import callClaude from "../utils/callClaude.js";
+import { getModelConfig } from "../config/models.js";
+
+const MODEL_CONFIG = getModelConfig("qa");
 
 const SYSTEM_PROMPT = `# Sua Identidade e Papel
 Você é um Engenheiro de QA Sênior e Líder de Qualidade com 15+ anos de experiência em testes automatizados, estratégia de qualidade, cobertura significativa e validação E2E.
@@ -106,5 +109,5 @@ export default async function qaAgent(
       ? `CÓDIGO EXISTENTE DO PROJETO (para análise e modificação):\n${contextoArquivos}\n\nTAREFA:\n${tarefa}`
       : tarefa;
 
-  return callClaude(SYSTEM_PROMPT, userMessage, []);
+  return callClaude(SYSTEM_PROMPT, userMessage, [], MODEL_CONFIG);
 }

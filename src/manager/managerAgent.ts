@@ -1,4 +1,5 @@
 import callClaude from "../utils/callClaude.js";
+import { getModelConfig } from "../config/models.js";
 import type {
   AgentName,
   AgentResults,
@@ -9,6 +10,9 @@ import type {
 } from "../types/index.js";
 import fs from "fs";
 import path from "path";
+
+const MODEL_MANAGER = getModelConfig("manager");
+const MODEL_CONSOLIDATION = getModelConfig("consolidation");
 
 /* ─────────────────────────────────────────────────────────────
    Função auxiliar para a Memória de Evolução
@@ -419,7 +423,12 @@ export default async function managerAgent(
   let currentMessage = userMessage;
 
   for (let rodada = 0; rodada < maxRodadas; rodada++) {
-    const text = await callClaude(SYSTEM_PROMPT, currentMessage, history);
+    const text = await callClaude(
+      SYSTEM_PROMPT,
+      currentMessage,
+      history,
+      MODEL_MANAGER
+    );
     const response = parseManagerResponse(text);
 
     if (response.status === "pronto") {
@@ -466,8 +475,9 @@ export default async function managerAgent(
   const finalText = await callClaude(
     SYSTEM_PROMPT,
     "Você já fez perguntas suficientes. Retorne AGORA o plano com status \"pronto\" " +
-    "usando as informações que tem. Faça suposições razoáveis para o que faltar.",
-    history
+      "usando as informações que tem. Faça suposições razoáveis para o que faltar.",
+    history,
+    MODEL_MANAGER
   );
 
   const finalResponse = parseManagerResponse(finalText);
@@ -506,5 +516,5 @@ export async function consolidarResultados(
 
   const userMessage = `${contextoNota}TAREFA ORIGINAL:\n${tarefaOriginal}\n\nANÁLISE DO GESTOR:\n${plano.analise}\n${criterios}\nAGENTES UTILIZADOS: ${plano.agentes_necessarios.join(", ")}\n\nRESULTADOS POR AGENTE:\n${blocos}\n\nConsolide tudo numa resposta final em português.`;
 
-  return callClaude(CONSOLIDATION_PROMPT, userMessage, []);
+  return callClaude(CONSOLIDATION_PROMPT, userMessage, [], MODEL_CONSOLIDATION);
 }

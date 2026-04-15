@@ -1,4 +1,7 @@
 import callClaude from "../utils/callClaude.js";
+import { getModelConfig } from "../config/models.js";
+
+const MODEL_CONFIG = getModelConfig("security");
 
 const SYSTEM_PROMPT = `# Sua Identidade e Papel
 Você é um Engenheiro de Segurança da Informação Sênior (AppSec / SecOps) com 15+ anos de experiência.
@@ -186,5 +189,5 @@ export default async function securityAgent(
       ? `CÓDIGO EXISTENTE DO PROJETO (para análise de segurança):\n${contextoArquivos}\n\nTAREFA:\n${tarefa}`
       : tarefa;
 
-  return callClaude(SYSTEM_PROMPT, userMessage, []);
+  return callClaude(SYSTEM_PROMPT, userMessage, [], MODEL_CONFIG);
 }
